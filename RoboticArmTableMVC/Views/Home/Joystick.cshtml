@@ -1,0 +1,643 @@
+﻿@{
+    ViewBag.Title = "Joystick";
+}
+
+<h2>Joystick</h2>
+@section scripts {
+    <script src="~/Scripts/jquery.signalR-2.0.2.min.js"></script>
+    <script src="~/signalr/hubs"></script>
+    @*<script src="~/Scripts/knockout-2.2.0.js"></script>*@
+    <script src="~/Scripts/knockout-2.2.0.debug.js"></script>
+    <script src="~/Scripts/utilities.js"></script>
+    <script type="text/javascript">
+        var shoulderBaseJoint = {
+            Name: 'ShoulderBase',
+            IsBaseJoint: true,
+            Orientation: JointOrientation.Rotate,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MaximumRotationDegree: 360
+        };
+
+        var shoulderUpDownJoint = {
+            Name: "ShoulderUpDown",
+            Orientation: JointOrientation.Bend,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MinimumRotationDegree: -90,
+            MaximumRotationDegree: 90
+        };
+
+        var elbowJoint = {
+            Name: "ElbowJoint",
+            Orientation: JointOrientation.Bend,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MinimumRotationDegree: -90,
+            MaximumRotationDegree: 90
+        };
+
+        var wristBend = {
+            Name: "WristBend",
+            Orientation: JointOrientation.Bend,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MinimumRotationDegree: -90,
+            MaximumRotationDegree: 90
+        };
+
+        var wristRotate = {
+            Name: "WristRotate",
+            Orientation: JointOrientation.Rotate,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MinimumRotationDegree: 0,
+            MaximumRotationDegree: 360
+        };
+
+        var gripperJoint = {
+            Name: "Gripper",
+            Orientation: JointOrientation.Gripper,
+            HomeDegree: 0,
+            CurrentRotationDegree: 0,
+            MinimumRotationDegree: 0,
+            MaximumRotationDegree: 47
+        };
+
+        var arm = {
+            Joints: [shoulderBaseJoint, shoulderUpDownJoint, elbowJoint, wristRotate, wristBend, gripperJoint],
+            Linkages: [{
+                StartJoint: shoulderBaseJoint,
+                EndJoint: shoulderUpDownJoint,
+                Length: 1,
+                Name: "ShoulderBaseToUpDown",
+                Radius: 1.5
+            },
+            {
+                StartJoint: shoulderUpDownJoint,
+                EndJoint: elbowJoint,
+                Length: 8.75,
+                Name: "ShoulderToElbow",
+                Width: 2
+            },
+            {
+                StartJoint: elbowJoint,
+                EndJoint: wristRotate,
+                Length: 5.75,
+                Name: "ElbowToWrist",
+                Width: 2
+            },
+            {
+                StartJoint: wristRotate,
+                EndJoint: wristBend,
+                Length: 1,
+                Name: "Wrist",
+                Radius: 1.5
+            },
+            {
+                StartJoint: wristBend,
+                EndJoint: gripperJoint,
+                Length: 1,
+                Name: "WristToGripper",
+                Width: 1
+            },
+            {
+                StartJoint: gripperJoint,
+                Length: 1,
+                Name: "Gripper",
+                Width: 1,
+                Reach: 4
+            }]
+        };
+
+        var controller = function (armHub) {
+            var self = this;
+
+            //Distances are measures in inches
+
+            this.obstacles = [];
+            this.movableObjects = [];
+
+            this.increment = .25;
+            this.rotationIncrement = 1;
+
+            this.minimumX = 3.25;
+            this.minimumZ = -4-7;
+            this.maximumX = 49.75;
+            this.maximumZ = -32;
+            this.minimumY = 25;
+            this.maximumY = -(1 + (13/16));
+
+            this.currentX = self.minimumX;
+            this.currentZ = self.minimumZ;
+            this.currentY = self.minimumY;
+            this.currentGripperX = 0;
+            this.currentGripperY = 0;
+            this.currentGripperZ = self.minimumZ;
+
+            this.CurrentMode = ko.observable(ArmMode.MoveBase);
+
+            this.arm = null;
+
+            this.sendCommand = function (command, body) {
+                armHub.server.sendCommand(command, body).fail(function (error) {
+                    alert(error.message);
+                });
+            }
+
+            this.initializeJointMatrix = function () {
+                var linkages = self.arm.Linkages;
+                var xyzAxisMatrix = {};
+
+                var linkageCount = linkages.length
+
+                for (var linkageIndex = 0; linkageIndex < linkageCount; linkageIndex++) {
+                    var linkage = linkages[linkageIndex]
+                    var joint = linkage.StartJoint;
+
+                    for(var rotationDegree = (joint.MinimumRotationDegree || 0); rotationDegree <= joint.MaximumRotationDegree; rotationDegree += self.rotationIncrement)
+                    {   
+                        var jointX = 0;
+                        var jointY = 0;
+                        var jointZ = 0;
+
+                        if(joint.Orientation == JointOrientation.Bend) {
+                            jointX = Math.sin(utilities.getRadians(rotationDegree)) * linkage.Length;
+                            jointY = -(Math.cos(utilities.getRadians(rotationDegree)) * linkage.Length);
+                        }
+                        else if(joint.Orientation == JointOrientation.Rotate) {
+                            jointX = Math.cos(utilities.getRadians(rotationDegree)) * linkage.Radius;
+                            jointZ = Math.sin(utilities.getRadians(rotationDegree)) * linkage.Radius;
+                        }
+
+                        xyzAxisMatrix[jointX + '|' + jointY + '|' + jointZ + '|' + linkageIndex] = rotationDegree;
+                    }
+                }
+
+                self.matrix = xyzAxisMatrix;
+            };
+
+            this.calculateJointAngles = function (x,y,z) {
+                //calculate the Joint angles needed to go to move to a specific location
+
+                var jointAngles = [];
+                /*
+                var lengthOfLineFromStartToFinish = x ^ 2 + y ^ 2; //B (imaginary line between start and end point (Pythagorean theorem)
+                var angleToY = Math.atan2(y, x); //q1 (Angle between X axis and B)
+                
+                var angleToLink = Math.acos((linkageLengths + lengthOfLineFromStartToFinish) / 2 * linkageLengths); //q2
+
+                jointAngles.push(0); //rotation of shoulder
+                jointAngles.push(angleToY + angleToLink); //shoulder bend
+
+                var totalAngle = 0;
+                var totalLinkLength = 0;
+                var totalLinkProduct = 0;
+
+                //for (var linkIndex = 1; linkIndex < self.arm.Linkages.length; linkIndex++) {
+                //    if (self.arm.Linkages[linkIndex].StartJoint.Orientation == JointOrientation.Bend) {
+                //        linkageLengths -= self.arm.Linkages[linkIndex].Length ^ 2;
+                //    }
+                //}
+
+                for (var linkIndex = 2; linkIndex < self.arm.Linkages.length-1; linkIndex++) {
+                    var linkage = self.arm.Linkages[linkIndex];
+
+                    if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
+                        var linkAngle = Math.acos((totalLinkLength - lengthOfLineFromStartToFinish) / 2 * totalLinkProduct)
+
+                        jointAngles.push(linkAngle);
+                        totalAngle = linkAngle;
+                    }
+                    else {
+                        jointAngles.push(0);
+                    }
+
+                    totalLinkLength += linkage.Length;
+                    totalLinkProduct *= linkage.Length;
+                }
+               
+                jointAngles.push(endAngle - totalAngle);
+                */
+
+                return jointAngles;
+            };
+
+            this.initializeGripperXY = function () {
+                var x = self.minimumX;
+                var y = self.minimumY;
+                var z = self.minimumZ;
+
+                for (var linkIndex = 0; linkIndex < self.arm.Linkages.length; linkIndex++) {
+                    var linkage = self.arm.Linkages[linkIndex];
+                    var linkX = 0;
+                    var linkY = 0;
+
+                    if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
+                        if (linkage.StartJoint.CurrentRotationDegree != 0) {
+                            linkX = Math.cos(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                            linkY = -Math.sin(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                        }
+                        else {
+                            linkX = 0;
+                            linkY = -linkage.Length;
+                        }
+                    }
+                    else {
+                        linkY = -linkage.Length;
+                    }
+
+                    x += linkX;
+                    y += linkY;
+                }
+                
+                self.currentGripperX = x;
+                self.currentGripperY = y;
+            };
+
+            this.init = function () {
+                self.arm = arm;
+                self.initializeJointMatrix();
+                self.initializeGripperXY();
+
+                armHub.server.init({
+                    currentX: self.currentX
+                                    , currentZ: self.currentZ
+                                    , ArmDefinition: arm
+                                    //, Obstacles: result.result
+                                    , MoveableObjects: self.moveableObjects
+                }).fail(function (error) {
+                    alert(error.message);
+                }).done(function () {
+                    armHub.server.plotMovementMatrix(self.matrix);
+                    armHub.server.plotCurrentGripperLocation(self.currentGripperX, self.currentGripperY, self.currentGripperZ);
+                });
+
+            };
+
+            this.calculateMovements = function (x, y, z) {
+                var jointAngles = self.calculateJointAngles(x, y, z);
+
+                var movements = [];
+
+                for (var jointIndex = 0; jointIndex < jointAngles.length; jointIndex++) {
+                    movements.push({ JointIndex: jointIndex, distance: jointAngles[jointIndex] });
+                }
+
+                return movements;
+            };
+
+            this.updateGripperLocation = function () {
+                armHub.server.moveCurrentGripperLocation(self.currentGripperX, self.currentGripperY, self.currentGripperZ);
+            };
+
+            this.moveUp = function () {
+                switch (self.CurrentMode()) {
+                    case ArmMode.MoveBase:
+                        if (self.currentZ - self.increment >= self.maximumZ) {
+                            self.currentZ -= self.increment;
+                            self.sendCommand('moveUp', { mode: self.CurrentMode(), distance: self.increment });
+                        }
+                        else if (self.currentZ != self.minimumZ) {
+                            var distance = self.currentZ - self.minimumZ;
+                            self.currentZ = self.minimumZ;
+                            self.sendCommand('moveUp', { mode: self.CurrentMode() , distance: distance });
+                        }
+                        break;
+                    case ArmMode.BendShoulder:
+                        if (self.rotateJoint(shoulderUpDownJoint, -self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 1, distance: shoulderUpDownJoint.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.BendElbow:
+                        if (self.rotateJoint(elbowJoint, -self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 2, distance: elbowJoint.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.BendWrist:
+                        if (self.rotateJoint(wristBend, -self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 4, distance: wristBend.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.GrabObject:
+                        if (self.rotateJoint(gripperJoint, 1)) {
+                            self.sendCommand('operateGripper', { mode: self.CurrentMode(), JointIndex: 5, distance: 1 });
+                        }
+                        break;
+                    case ArmMode.MoveObject:
+                        if (self.currentGripperY + self.increment >= self.maximumY) {
+                            self.currentGripperY += self.increment;
+                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+
+                            self.sendCommand('moveObject', { movements: movements });
+                            self.updateGripperLocation();
+                        }
+                        break;
+                }
+            };
+
+            this.moveDown = function () {
+                switch (self.CurrentMode()) {
+                    case ArmMode.MoveBase:
+                        if (self.currentZ + self.increment <= self.minimumZ) {
+                            self.currentZ += self.increment;
+                            self.sendCommand('moveDown', { mode: self.CurrentMode(), distance: self.increment });
+                        }
+                        else if (self.currentZ != self.minimumZ) {
+                            var distance = self.currentZ + self.minimumZ;
+                            self.currentZ = self.minimumZ;
+                            self.sendCommand('moveDown', { mode: self.CurrentMode(), distance: distance });
+                        }
+                        break;
+                    case ArmMode.BendShoulder:
+                        if (self.rotateJoint(shoulderUpDownJoint, self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 1, distance: shoulderUpDownJoint.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.BendElbow:
+                        if (self.rotateJoint(elbowJoint, self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 2, distance: elbowJoint.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.BendWrist:
+                        if (self.rotateJoint(wristBend, self.rotationIncrement)) {
+                            self.sendCommand('bendJoint', { mode: self.CurrentMode(), JointIndex: 4, distance: wristBend.CurrentRotationDegree });
+                        }
+                        break;
+                    case ArmMode.GrabObject:
+                        if (self.rotateJoint(gripperJoint, -1)) {
+                            self.sendCommand('operateGripper', { mode: self.CurrentMode(), JointIndex: 5, distance: -1 });
+                        }
+                        break;
+                    case ArmMode.MoveObject:
+                        if (self.currentY - self.increment <= self.minimumY) {
+                            self.currentGripperY -= self.increment;
+                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+
+                            self.sendCommand('moveObject', { movements: movements });
+                            self.updateGripperLocation();
+
+                        }
+                        break;
+
+                }
+            
+            };
+
+            this.moveLeft = function () {
+                switch (self.CurrentMode()) {
+                    case ArmMode.MoveBase:
+                        if (self.currentX - this.increment >= self.minimumX) {
+                            self.currentX -= this.increment;
+                            self.sendCommand('moveLeft', { mode: self.CurrentMode(), distance: self.increment });
+                        }
+                        else if (self.currentX != self.minimumX) {
+                            var distance = self.currentX - self.minimumX;
+                            self.currentX = this.minimumX;
+                            self.sendCommand('moveLeft', { mode: self.CurrentMode(), distance: distance });
+                        }
+                        break;
+                    case ArmMode.RotateBase:
+                        if (self.rotateJoint(shoulderBaseJoint, -1)) {
+                            self.sendCommand('rotateJoint', { JointIndex: 0, mode: self.CurrentMode(), distance: -1 });
+                        }
+                        break;
+                    case ArmMode.RotateWrist:
+                        if (self.rotateJoint(wristRotate, -1)) {
+                            self.sendCommand('rotateJoint', { JointIndex: 3, mode: self.CurrentMode(), distance: -1 });
+                        }
+                        break;
+                    case ArmMode.MoveObject:
+                        if (self.currentGripperX - self.increment >= self.minimumX) {
+                            self.currentGripperX -= self.increment;
+                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+
+                            self.sendCommand('moveObject', { movements: movements });
+                            self.updateGripperLocation();
+                        }
+                        break;
+                }
+            };
+
+            this.moveRight = function () {
+                switch (self.CurrentMode()) {
+                    case ArmMode.MoveBase:
+                        if (self.currentX + this.increment <= self.maximumX) {
+                            self.currentX += this.increment;
+                            self.sendCommand('moveRight', { mode: self.CurrentMode(), distance: self.increment });
+                        }
+                        else if (self.currentX != self.maximumX) {
+                            var distance = self.maximumX - self.currentX;
+                            self.currentX = self.maximumX;
+                            self.sendCommand('moveRight', { mode: self.CurrentMode(), distance: distance });
+                        }
+                        break;
+                    case ArmMode.RotateBase:
+                        if (self.rotateJoint(shoulderBaseJoint, self.rotationIncrement)) {
+                            self.sendCommand('rotateJoint', { JointIndex: 0, mode: self.CurrentMode(), distance: self.rotationIncrement });
+                        }
+                        break;
+                    case ArmMode.RotateWrist:
+                        if (self.rotateJoint(wristRotate, self.rotationIncrement)) {
+                            self.sendCommand('rotateJoint', { JointIndex: 3, mode: self.CurrentMode(), distance: self.rotationIncrement });
+                        }
+                        break;
+                    case ArmMode.MoveObject:
+                        if (self.currentGripperX + self.increment <= self.maximumX) {
+                            self.currentGripperX += self.increment;
+                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+
+                            self.sendCommand('moveObject', { movements: movements });
+                            self.updateGripperLocation();
+                        }
+                        break;
+
+                }
+            };
+     
+            this.moveToXZAnimated = function (x, z) {
+                var signX = x < self.currentX ? -1 : 1;
+                var signZ = z < self.currentZ ? -1 : 1;
+
+                if ((signX == 1 && self.currentX + (signX * self.increment) <= x) ||
+                (signX == -1 && self.currentX + (signX * self.increment) >= x)) {
+
+                    signX == -1 ? self.moveLeft() : self.moveRight();
+                }
+
+                if ((signZ == 1 && self.currentZ + (signZ * self.increment) <= z) ||
+                    (signZ == -1 && self.currentZ + (signZ * self.increment) >= z)) {
+
+                    signZ == -1 ? self.moveUp() : self.moveDown();
+                }
+
+                if (x != self.currentX || z != self.currentZ) {
+                    window.setTimeout(function () { self.moveToXZAnimated(x, z) }, 100);
+                }
+            };
+
+            this.rotateJoint = function (joint, degree) {
+                if (joint.MaximumRotationDegree != 360) {
+                    //don't let it go beyond maximum
+                    if (joint.CurrentRotationDegree + degree > joint.MaximumRotationDegree) {
+                        return false;
+                    }
+
+                    //don't let it go beyond minimum
+                    if (joint.CurrentRotationDegree + degree < joint.MinimumRotationDegree) {
+                        return false;
+                    }
+                }
+
+                joint.CurrentRotationDegree += degree;
+
+                if (joint.MaximumRotationDegree == 360) {
+                    if (joint.CurrentRotationDegree < 0) {
+                        joint.CurrentRotationDegree += 360;
+                    }
+                    else if (joint.CurrentRotationDegree > 360) {
+                        joint.CurrentRotationDegree = joint.CurrentRotationDegree - 360;
+                    }
+                }
+
+                return true;
+            };
+
+            this.resetArmToHome = function () {
+                var movements = [];
+
+                for (var x = 0; x < self.arm.Joints.length; x++) {
+                    var joint = self.arm.Joints[x];
+
+                    if (joint.CurrentRotationDegree != joint.HomeDegree) {
+                        var jointSign;
+
+                        if (joint.Orientation == JointOrientation.Bend) {
+                            jointSign = joint.HomeDegree < joint.CurrentRotationDegree ? -1 : 1;
+                        }
+                        else {
+                            var rightDiff = 360 - joint.CurrentRotationDegree;
+                            var leftDiff = joint.CurrentRotationDegree;
+
+                            if (rightDiff < leftDiff) {
+                                jointSign = 1;
+                            }
+                            else {
+                                jointSign = -1;
+                            }
+                        }
+
+                        if (self.rotateJoint(joint, jointSign)) {
+                            if (joint.Orientation == JointOrientation.Bend) {
+                                movements.push({ JointIndex: x, distance: joint.CurrentRotationDegree });
+                            }
+                            else if (joint.Orientation == JointOrientation.Rotate) {
+                                movements.push({ JointIndex: x, distance: jointSign });
+                            }
+                            else if (joint.Orientation == JointOrientation.Gripper) {
+                                movements.push({ JointIndex: x, distance: jointSign });
+                            }
+                        }
+                    }
+                }
+
+                if (movements.length > 0) {
+                    self.sendCommand('moveArm', { movements: movements });
+                    window.setTimeout(function () {
+                        self.resetArmToHome();
+                    }, 50);
+                }
+            };
+
+            this.moveToHome = function () {
+                switch (self.CurrentMode()) {
+                    case ArmMode.MoveBase:
+                        self.moveToXZAnimated(self.minimumX, self.minimumZ);
+                        break;
+                    case ArmMode.RotateBase:
+                    case ArmMode.BendElbow:
+                    case ArmMode.BendShoulder:
+                    case ArmMode.BendWrist:
+                    case ArmMode.RotateWrist:
+                        //move arm back to 0                        
+                        self.resetArmToHome();
+                        break
+                }
+            };
+        };
+
+        var armHub = null;
+        var armController = null;
+
+        $(function () {
+            armHub = $.connection.armHub;
+            armController = new controller(armHub);
+
+            $.connection.hub.start().done(function () {
+                armController.init();
+
+                window.addEventListener('keydown', function (evt) {
+                    //Up
+                    if (evt.keyCode == 38) {
+                        armController.moveUp();
+                    }
+                        //Down
+                    else if (evt.keyCode == 40) {
+                        armController.moveDown();
+                    }
+                        //left
+                    else if (evt.keyCode == 37) {
+                        armController.moveLeft();
+                    }
+                        //right
+                    else if (evt.keyCode == 39) {
+                        armController.moveRight();
+                    }
+                    else if (evt.keyCode == 36) {
+                        //xyAssembly.moveToHome();
+                        armController.moveToHome();
+                    }
+                    else {
+                        //alert(evt.keyCode);
+                    }
+
+                    switch(evt.keyCode)
+                    {
+                        case 123:
+                        case 116:
+                            break;
+                        default:
+                            evt.preventDefault();
+                    }
+
+                    return false;
+                }, false);
+            });
+
+            ko.applyBindings(armController);
+        });
+
+    </script>
+}
+@section styles {
+.selectedButton {
+        background-color: green;
+        color: white;
+    }
+    .button {
+
+    }
+}
+<button onclick="armController.init();">Init</button>
+
+<div>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.RotateBase }, click: function () { CurrentMode(ArmMode.RotateBase); }">Rotate Base</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.MoveBase }, click: function () { CurrentMode(ArmMode.MoveBase); }">Move Base</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendShoulder }, click: function () { CurrentMode(ArmMode.BendShoulder); }">Bend Shoulder</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendElbow }, click: function () { CurrentMode(ArmMode.BendElbow); }">Bend Elbow</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.RotateWrist }, click: function () { CurrentMode(ArmMode.RotateWrist); }">Rotate Wrist</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendWrist }, click: function () { CurrentMode(ArmMode.BendWrist); }">Bend Wrist</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.MoveObject }, click: function () { CurrentMode(ArmMode.MoveObject); }">Move Object</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.GrabObject }, click: function () { CurrentMode(ArmMode.GrabObject); }">Grab Object</button>
+
+</div>

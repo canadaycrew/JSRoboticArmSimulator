@@ -1,0 +1,1275 @@
+﻿@{
+    ViewBag.Title = "Simulator";
+}
+
+<h2>Simulator</h2>
+@section scripts {
+    <script src="~/Scripts/jquery-1.8.2.min.js"></script>
+    <script src="/Scripts/Three.js/Three.js"></script>
+    <script src="/Scripts/Three.js/OrbitControls.js"></script>
+    <script src="~/Scripts/Three.js/csg.js"></script>
+    <script src="~/Scripts/Three.js/ThreeCSG.js"></script>
+    <script src="/Scripts/jquery.signalR-2.0.2.min.js"></script>
+    <script src="~/signalr/hubs"></script>
+    <script src="~/Scripts/utilities.js"></script>
+    <script>
+
+        //Add materials to utilities
+        utilities.woodMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        utilities.armMaterial = new THREE.MeshLambertMaterial({ color: 0x0000FF }); // 0x71C671 });
+        utilities.deskMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+        utilities.metalMaterial = new THREE.MeshPhongMaterial({ color: 0x3F3F3F });
+        utilities.matrixPoint = new THREE.MeshPhongMaterial({ color: 0x00FF00 });
+        utilities.ninetyDegreesRad = utilities.getRadians(90);
+
+        var xyRailBlock = function () {
+            var self = this;
+
+            this.width = utilities.calculateSize(1.5);
+            this.height = utilities.calculateSize(5.25);
+            this.depth = utilities.calculateSize(7);
+            this.holeRadius = utilities.calculateSize(.3125);
+            this.holeHeight = utilities.calculateSize(1.75);
+
+            this.leftRightHoleHeight = utilities.calculateSize(3.578125);
+            this.leftRightHoleRadius = utilities.calculateSize(.5);
+            this.leftRightHoleDepth = utilities.calculateSize(3.5);
+            this.leftRightHoleGeometry = null;
+            this.leftRightHoleMesh = null;
+
+
+            this.points = null;
+            this.blockShape = null;
+            this.blockGeometry = null;
+            this.blockMesh = null;
+            this.holeGeometry = null;
+            this.holeMesh = null;
+
+            this.nutWidth = utilities.calculateSize(0.65625);
+            this.nutHeight = utilities.calculateSize(0.734375);
+            this.nutCenterRadius = utilities.calculateSize(0.1875);
+
+            this.create = function (includeHole) {
+                self.points = [];
+
+                self.points.push(new THREE.Vector2(utilities.calculateSize(.75), 0));
+                self.points.push(new THREE.Vector2(self.width, utilities.calculateSize(.75)));
+                self.points.push(new THREE.Vector2(self.width, self.height));
+                self.points.push(new THREE.Vector2(0, self.height));
+                self.points.push(new THREE.Vector2(0, utilities.calculateSize(.75)));
+                self.points.push(new THREE.Vector2(utilities.calculateSize(.75), 0));
+
+                self.blockShape = new THREE.Shape(self.points);
+                var extrudeOptions = { amount: self.depth, bevelEnabled: false };
+                self.blockGeometry = self.blockShape.extrude(extrudeOptions);
+                self.blockMesh = new THREE.Mesh(self.blockGeometry, utilities.woodMaterial);
+                self.block_bsp = new ThreeBSP(self.blockMesh);
+
+                if (includeHole) {
+                    self.holeGeometry = new THREE.CylinderGeometry(self.holeRadius, self.holeRadius, self.depth, 32);
+                    self.holeMesh = new THREE.Mesh(self.holeGeometry, utilities.woodMaterial);
+                    self.holeMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+                    self.holeMesh.position.set(self.width / 2, self.holeHeight, self.depth / 2);
+                    self.hole_bsp = new ThreeBSP(self.holeMesh);
+
+                    var resultBSP = self.block_bsp.subtract(self.hole_bsp);
+                    self.blockMesh = resultBSP.toMesh(utilities.woodMaterial);
+                    self.block_bsp = new ThreeBSP(self.blockMesh);
+                }
+
+                self.leftRightHoleGeometry = new THREE.CylinderGeometry(self.leftRightHoleRadius, self.leftRightHoleRadius, utilities.calculateSize(1.5), 32);
+                self.leftRightHoleMesh = new THREE.Mesh(self.leftRightHoleGeometry, utilities.woodMaterial);
+                self.leftRightHoleMesh.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+                self.leftRightHoleMesh.position.set(self.width / 2, self.leftRightHoleHeight, self.leftRightHoleDepth);
+                self.leftRightHole_bsp = new ThreeBSP(self.leftRightHoleMesh);
+
+                var leftRightHoleRemoveBSP = self.block_bsp.subtract(self.leftRightHole_bsp);
+                self.blockMesh = leftRightHoleRemoveBSP.toMesh(utilities.woodMaterial);
+
+                return self.blockMesh;
+            };
+        };
+
+        var armMountAssembly = function () {
+            var self = this;
+
+            this.gapHeight = utilities.calculateSize(0.9375); //15/16"
+
+            this.frontBlockWidth = utilities.calculateSize(7); //x
+            this.frontBlockHeight = utilities.calculateSize(3.25); //y
+            this.frontBlockDepth = utilities.calculateSize(1.5); //z
+
+            this.sideBlockWidth = utilities.calculateSize(.75); //x
+            this.sideBlockHeight = utilities.calculateSize(2.5); //y
+            this.sideBlockDepth = utilities.calculateSize(4); //z
+
+            this.armMountWidth = utilities.calculateSize(7); //x
+            this.armMountHeight = utilities.calculateSize(.75); //y
+            this.armMountDepth = utilities.calculateSize(7); //z
+
+            this.holeRadius = utilities.calculateSize(0.28125); //9/32"
+            this.holeHeight = utilities.calculateSize(0.890625); //57/64"
+
+            this.leftRightHoleRadius = utilities.calculateSize(0.28125); //9/32
+            this.leftRightHoleHeight = utilities.calculateSize(0.890625); //57/64
+            this.leftRightHoleDepth = utilities.calculateSize(2);
+            this.leftRightHoleGeometry = null;
+            this.leftRightHoleMesh = null;
+            this.leftRightHole_bsp = null;
+
+            this.width = this.armMountWidth; //x
+            this.height = self.armMountHeight + self.gapHeight + self.frontBlockHeight; //y
+            this.depth = this.armMountDepth; //z
+
+            this.points = null;
+
+            this.create = function () {
+                self.assembly = new THREE.Object3D();
+
+                var axisHelper = new THREE.AxisHelper(utilities.calculateSize(3));
+                self.assembly.add(axisHelper);
+
+                self.armMountGeo = new THREE.CubeGeometry(self.armMountWidth,
+                                                            self.armMountHeight,
+                                                        self.armMountDepth);
+
+                self.armMountMesh = new THREE.Mesh(self.armMountGeo, utilities.woodMaterial);
+                self.armMountMesh.position.set(self.armMountGeo.width / 2,
+                                                self.armMountGeo.height / 2,
+                                                -(self.armMountGeo.depth / 2));
+
+                self.assembly.add(self.armMountMesh);
+
+                self.points = [];
+
+                self.points.push(new THREE.Vector2(utilities.calculateSize(.75), 0));
+                self.points.push(new THREE.Vector2(self.frontBlockDepth, utilities.calculateSize(.75)));
+                self.points.push(new THREE.Vector2(self.frontBlockDepth, self.frontBlockHeight));
+                self.points.push(new THREE.Vector2(0, self.frontBlockHeight));
+                self.points.push(new THREE.Vector2(0, utilities.calculateSize(.75)));
+                self.points.push(new THREE.Vector2(utilities.calculateSize(.75), 0));
+
+                self.railBlockShape = new THREE.Shape(self.points);
+                var extrudeOptions = { amount: self.frontBlockWidth, bevelEnabled: false };
+                self.railBlockGeo = self.railBlockShape.extrude(extrudeOptions);
+                self.frontRailBlockMesh = new THREE.Mesh(self.railBlockGeo, utilities.woodMaterial);
+                self.frontRailBlockMesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                self.frontRailBlockMesh.position.set(0,
+                    self.armMountHeight + self.gapHeight,
+                    0);
+
+                self.assembly.add(self.frontRailBlockMesh);
+
+                self.sideBlockGeo = new THREE.CubeGeometry(self.sideBlockWidth, self.sideBlockHeight, self.sideBlockDepth);
+                self.leftSideBlockMesh = new THREE.Mesh(self.sideBlockGeo, utilities.woodMaterial);
+                self.leftSideBlockMesh.position.set((self.sideBlockGeo.width / 2),
+                                            self.armMountHeight + self.gapHeight + (self.frontBlockHeight - self.sideBlockHeight) + (self.sideBlockHeight / 2),
+                                            -(self.frontBlockDepth + (self.sideBlockDepth / 2)));
+                self.leftSideBlock_bsp = new ThreeBSP(self.leftSideBlockMesh);
+
+                //Remove the hole
+                self.leftRightHoleGeometry = new THREE.CylinderGeometry(self.leftRightHoleRadius, self.leftRightHoleRadius, self.sideBlockGeo.width, 32);
+                self.leftRightHoleMesh = new THREE.Mesh(self.leftRightHoleGeometry, utilities.woodMaterial);
+                self.leftRightHoleMesh.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+                self.leftRightHoleMesh.position.set(self.sideBlockGeo.width / 2,
+                                                    self.armMountHeight + self.gapHeight + (self.frontBlockHeight - self.sideBlockHeight) + self.leftRightHoleHeight,
+                                                    -(self.frontBlockDepth + (self.sideBlockDepth / 2)));
+                self.leftRightHole_bsp = new ThreeBSP(self.leftRightHoleMesh);
+
+                var leftRightHoleRemoveBSP = self.leftSideBlock_bsp.subtract(self.leftRightHole_bsp);
+                self.leftSideBlockMesh = leftRightHoleRemoveBSP.toMesh(utilities.woodMaterial);
+
+                self.assembly.add(self.leftSideBlockMesh);
+
+                self.backRailBlockMesh = new THREE.Mesh(self.railBlockGeo, utilities.woodMaterial);
+                self.backRailBlockMesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                self.backRailBlockMesh.position.set(0,
+                                                self.armMountHeight + self.gapHeight,
+                                                -(self.frontBlockDepth + self.sideBlockDepth));
+                self.assembly.add(self.backRailBlockMesh);
+
+                self.rightSideBlockMesh = new THREE.Mesh(self.sideBlockGeo, utilities.woodMaterial);
+                self.rightSideBlockMesh.position.set(self.frontBlockWidth - (self.sideBlockGeo.width / 2),
+                                            self.armMountHeight + self.gapHeight + (self.frontBlockHeight - self.sideBlockHeight) + (self.sideBlockHeight / 2),
+                                            -(self.frontBlockDepth + (self.sideBlockDepth / 2)));
+                self.rightSideBlock_bsp = new ThreeBSP(self.rightSideBlockMesh);
+
+                //Remove the hole
+                self.leftRightHoleMesh = new THREE.Mesh(self.leftRightHoleGeometry, utilities.woodMaterial);
+                self.leftRightHoleMesh.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+                self.leftRightHoleMesh.position.set(self.frontBlockWidth - (self.sideBlockGeo.width / 2),
+                                                    self.armMountHeight + self.gapHeight + (self.frontBlockHeight - self.sideBlockHeight) + self.leftRightHoleHeight,
+                                                    -(self.frontBlockDepth + (self.sideBlockDepth / 2)));
+                self.leftRightHole_bsp = new ThreeBSP(self.leftRightHoleMesh);
+
+                var leftRightHoleRemoveBSP = self.rightSideBlock_bsp.subtract(self.leftRightHole_bsp);
+                self.rightSideBlockMesh = leftRightHoleRemoveBSP.toMesh(utilities.woodMaterial);
+
+                self.assembly.add(self.rightSideBlockMesh);
+
+                return self.assembly;
+            };
+        };
+
+        var pipeTopBlock = function () {
+            var self = this;
+
+            this.width = utilities.calculateSize(3);
+            this.height = utilities.calculateSize(1.5);
+            this.depth = utilities.calculateSize(3);
+
+        };
+
+        var pipe = function () {
+            var self = this;
+
+            this.diameter = utilities.calculateSize(1.5);
+        };
+
+        var table = function () {
+            var self = this;
+
+            this.width = utilities.calculateSize(60);
+            this.height = utilities.calculateSize(5);
+            this.depth = utilities.calculateSize(36);
+
+            this.Vertex = new THREE.Vector3(0, 0, 0);
+            this.Mesh = null;
+
+            this.render = function () {
+
+            };
+        };
+
+        var railShapeDef = function () {
+
+        };
+
+        var motorMount = function () {
+            var self = this;
+
+            this.width = utilities.calculateSize(3);
+            this.baseHeight = utilities.calculateSize(.5);
+            this.baseDepth = utilities.calculateSize(2.5);
+            this.frontHeight = utilities.calculateSize(3);
+            this.frontDepth = utilities.calculateSize(.5);
+
+            this.baseMesh = null;
+            this.baseGeometry = null;
+            this.frontMesh = null;
+            this.frontGeometry = null;
+
+            this.create = function () {
+                self.baseGeometry = new THREE.CubeGeometry(self.width, self.baseHeight, self.baseDepth, 32, 16);
+                self.baseMesh = new THREE.Mesh(self.baseGeometry, utilities.woodMaterial);
+
+                self.cubeGeometry = new THREE.CubeGeometry(self.width, self.frontHeight, self.frontDepth);
+                self.cubeMesh = new THREE.Mesh(self.cubeGeometry, utilities.woodMaterial);
+                self.cube_bsp = new ThreeBSP(self.cubeMesh);
+
+                self.holeGeometry = new THREE.CylinderGeometry(utilities.calculateSize(.375), utilities.calculateSize(.375), utilities.calculateSize(.5), 32);
+                self.holeMesh = new THREE.Mesh(self.holeGeometry);
+                self.holeMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+                self.holeMesh.position.set(0, 0 - (self.frontHeight / 2) + utilities.calculateSize(1.609375), 0);
+
+                self.hole_bsp = new ThreeBSP(self.holeMesh);
+
+                self.frontBSP = self.cube_bsp.subtract(self.hole_bsp);
+                var result = self.frontBSP.toMesh(utilities.woodMaterial);
+
+                result.position.set(0, (self.frontHeight / 2) - (self.baseHeight / 2), -(utilities.calculateSize(1.5)));
+
+                THREE.GeometryUtils.merge(self.baseGeometry, result);
+
+                return self.baseMesh;
+            };
+        };
+
+        var baseStructure = function (scene) {
+            var self = this;
+
+            this.tableGeometry = null;
+            this.tableMesh = null;
+
+            this.pipeGeo = null;
+            this.frontLeftPipeMesh = null;
+            this.backLeftPipeMesh = null;
+            this.frontRightPipeMesh = null;
+            this.backRightPipeMesh = null;
+
+            this.pipeTopBlockGeo = null;
+            this.frontLeftPipeTopMesh = null;
+            this.backLeftPipeTopMesh = null;
+            this.frontRightPipeTopMesh = null;
+            this.backRightPipeTopMesh = null;
+
+            this.railShape = null;
+            this.railGeo = null;
+            this.leftRailMesh = null;
+            this.rightRailMesh = null;
+
+            this.postOffset = null;
+
+            this.frontBackThreadedRodGeo = null;
+            this.frontBackThreadedRodMesh = null;
+            this.frontBackThreadedRodRadius = utilities.calculateSize(.25);
+
+            this.render = function () {
+                var axisHelper = new THREE.AxisHelper(utilities.calculateSize(12));
+                scene.add(axisHelper);
+
+                self.tableGeometry = new THREE.CubeGeometry(utilities.calculateSize(60), utilities.calculateSize(5), utilities.calculateSize(36)); //(320, 10, 140);
+
+                self.postOffset = utilities.calculateSize(2.5); //1.6875); //10;
+
+                //Draw Table
+                self.tableMesh = new THREE.Mesh(self.tableGeometry, utilities.deskMaterial);
+                self.tableMesh.position.x = (self.tableGeometry.width / 2);
+                self.tableMesh.position.y = (self.tableGeometry.height / 2);
+                self.tableMesh.position.z = -(self.tableGeometry.depth / 2); //-((geometry.depth / 2)); // + (60 - 10));
+                scene.add(self.tableMesh);
+
+                //Draw Vertical Pipes
+                self.pipeGeo = new THREE.CylinderGeometry(utilities.calculateSize(.75) / 2, utilities.calculateSize(.75) / 2, utilities.calculateSize(24), 32);
+
+                self.frontLeftPipeMesh = new THREE.Mesh(self.pipeGeo, utilities.metalMaterial);
+                self.frontLeftPipeMesh.position.x = self.postOffset;
+                self.frontLeftPipeMesh.position.y = (self.pipeGeo.height / 2) + self.tableGeometry.height;
+                self.frontLeftPipeMesh.position.z = -self.postOffset;
+
+                scene.add(self.frontLeftPipeMesh);
+
+                self.backLeftPipeMesh = new THREE.Mesh(self.pipeGeo, utilities.metalMaterial);
+                self.backLeftPipeMesh.position.x = self.postOffset;
+                self.backLeftPipeMesh.position.y = (self.pipeGeo.height / 2) + self.tableGeometry.height;
+                self.backLeftPipeMesh.position.z = -(self.tableGeometry.depth - self.postOffset); //150;
+
+                scene.add(self.backLeftPipeMesh);
+
+                self.frontRightPipeMesh = new THREE.Mesh(self.pipeGeo, utilities.metalMaterial);
+                self.frontRightPipeMesh.position.x = self.tableGeometry.width - self.postOffset; //300;
+                self.frontRightPipeMesh.position.y = (self.pipeGeo.height / 2) + self.tableGeometry.height;
+                self.frontRightPipeMesh.position.z = -self.postOffset;
+
+                scene.add(self.frontRightPipeMesh);
+
+                self.backRightPipeMesh = new THREE.Mesh(self.pipeGeo, utilities.metalMaterial);
+                self.backRightPipeMesh.position.x = self.tableGeometry.width - self.postOffset; //300;
+                self.backRightPipeMesh.position.y = (self.pipeGeo.height / 2) + self.tableGeometry.height;
+                self.backRightPipeMesh.position.z = -(self.tableGeometry.depth - self.postOffset); //150;
+
+                scene.add(self.backRightPipeMesh);
+
+                //Post Top Definition
+                self.pipeTopBlockGeo = new THREE.CubeGeometry(utilities.calculateSize(3),
+                                                        utilities.calculateSize(1.5),
+                                                        utilities.calculateSize(3));
+                //var postTopMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+
+                self.frontLeftPipeTopMesh = new THREE.Mesh(self.pipeTopBlockGeo, utilities.woodMaterial);
+                self.frontLeftPipeTopMesh.position.set(self.postOffset,
+                                                        self.frontLeftPipeMesh.position.y + (self.pipeGeo.height / 2) + (self.pipeTopBlockGeo.height / 2),
+                                                        -(self.postOffset));
+                scene.add(self.frontLeftPipeTopMesh);
+
+                self.backLeftPipeTopMesh = new THREE.Mesh(self.pipeTopBlockGeo, utilities.woodMaterial);
+                self.backLeftPipeTopMesh.position.set(self.postOffset,
+                                                        self.backLeftPipeMesh.position.y + (self.pipeGeo.height / 2) + (self.pipeTopBlockGeo.height / 2),
+                                                        -(self.tableGeometry.depth - self.postOffset));
+                scene.add(self.backLeftPipeTopMesh);
+
+                self.frontRightPipeTopMesh = new THREE.Mesh(self.pipeTopBlockGeo, utilities.woodMaterial);
+                self.frontRightPipeTopMesh.position.set(self.tableGeometry.width - self.postOffset,
+                                                        self.frontRightPipeMesh.position.y + (self.pipeGeo.height / 2) + (self.pipeTopBlockGeo.height / 2),
+                                                        -(self.postOffset));
+                scene.add(self.frontRightPipeTopMesh);
+
+                self.backRightPipeTopMesh = new THREE.Mesh(self.pipeTopBlockGeo, utilities.woodMaterial);
+                self.backRightPipeTopMesh.position.set(self.tableGeometry.width - self.postOffset,
+                                                self.backRightPipeMesh.position.y + (self.pipeGeo.height / 2) + (self.pipeTopBlockGeo.height / 2),
+                                                -(self.tableGeometry.depth - self.postOffset));
+                scene.add(self.backRightPipeTopMesh);
+
+                //front to back rail definition
+                points = [];
+
+                points.push(new THREE.Vector2(utilities.calculateSize(.046875), 0)); //(.625, 0));
+                points.push(new THREE.Vector2(utilities.calculateSize(.359375), utilities.calculateSize(.3125))); //(1.875, 1.25));
+                points.push(new THREE.Vector2(utilities.calculateSize(.65625), 0)); //(3.125, 0));
+                points.push(new THREE.Vector2(utilities.calculateSize(.703125), utilities.calculateSize(.046875))); //(3.75, .625));
+                points.push(new THREE.Vector2(utilities.calculateSize(.359375), utilities.calculateSize(.390625))); //(1.875, 2.5));
+                points.push(new THREE.Vector2(0, utilities.calculateSize(.046875))); //(0, .625));
+                points.push(new THREE.Vector2(utilities.calculateSize(.046875), 0)); //(.625, 0));
+
+                self.railShape = new THREE.Shape(points);
+                var extrudeOptions = { amount: Math.abs((self.backLeftPipeTopMesh.position.z + (self.pipeTopBlockGeo.depth / 2)) + (Math.abs(self.frontLeftPipeTopMesh.position.z) + (self.pipeTopBlockGeo.depth / 2))), bevelEnabled: false };
+                self.railGeo = self.railShape.extrude(extrudeOptions);
+
+                self.leftRail = new THREE.Mesh(self.railGeo, utilities.metalMaterial);
+                self.leftRail.position.set(self.postOffset - (utilities.calculateSize(.703125) / 2),
+                                        self.frontLeftPipeTopMesh.position.y - (self.pipeTopBlockGeo.height / 2) + utilities.calculateSize(.390625),
+                                        self.backLeftPipeTopMesh.position.z + (self.pipeTopBlockGeo.depth / 2));
+                scene.add(self.leftRail);
+
+                self.rightRail = new THREE.Mesh(self.railGeo, utilities.metalMaterial);
+                self.rightRail.position.set(self.tableGeometry.width - self.postOffset - (utilities.calculateSize(.703125) / 2),
+                                        self.frontLeftPipeTopMesh.position.y - (self.pipeTopBlockGeo.height / 2) + utilities.calculateSize(.390625),
+                                        //self.pipeGeo.height + (postTopGeo.height / 2) - (utilities.calculateSize(.390625) / 2),
+                                        self.backLeftPipeTopMesh.position.z + (self.pipeTopBlockGeo.depth / 2));
+                scene.add(self.rightRail);
+
+                //front left motor mount
+                var motorMountDef = new motorMount();
+                self.frontLeftMotorMountMesh = motorMountDef.create();
+                self.frontLeftMotorMountMesh.position.set(self.frontLeftPipeTopMesh.position.x,
+                                                            self.frontLeftPipeTopMesh.position.y + (self.pipeTopBlockGeo.height / 2) + (motorMountDef.baseHeight / 2),
+                                                            self.frontLeftPipeTopMesh.position.z + utilities.calculateSize(.25));
+                scene.add(self.frontLeftMotorMountMesh);
+
+                self.backLeftMotorMountMesh = motorMountDef.create();
+                self.backLeftMotorMountMesh.position.set(self.backLeftPipeTopMesh.position.x,
+                                                            self.backLeftPipeTopMesh.position.y + (self.pipeTopBlockGeo.height / 2) + (motorMountDef.baseHeight / 2),
+                                                            self.backLeftPipeTopMesh.position.z - utilities.calculateSize(.25));
+                self.backLeftMotorMountMesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), Math.PI);
+                scene.add(self.backLeftMotorMountMesh);
+
+                self.frontBackThreadedRodGeo = new THREE.CylinderGeometry(self.frontBackThreadedRodRadius, self.frontBackThreadedRodRadius, Math.abs(self.frontLeftMotorMountMesh.position.z - self.backLeftMotorMountMesh.position.z) - motorMountDef.width);
+                self.frontBackThreadedRodMesh = new THREE.Mesh(self.frontBackThreadedRodGeo, utilities.metalMaterial);
+                self.frontBackThreadedRodMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+                self.frontBackThreadedRodMesh.position.set(self.frontLeftMotorMountMesh.position.x,
+                                                            utilities.calculateSize(32.109375),
+                                                            self.frontLeftMotorMountMesh.position.z - (self.frontBackThreadedRodGeo.height / 2) - (motorMountDef.width / 2));
+                scene.add(self.frontBackThreadedRodMesh);
+            };
+        };
+
+        var xyAssemblyDef = function (scene, baseStructure, roboticArm) {
+            var self = this;
+
+            this.xyBlockShape = null;
+            this.xyBlockGeo = null;
+            this.leftXYBlockMesh = null;
+            this.rightXYBlockMesh = null;
+
+            this.armMountAssemblyDef = new armMountAssembly();
+
+            this.xyBlockDef = null;
+            this.xyRailShape = null;
+            this.xyRailGeo = null;
+            this.frontXYRailMesh = null;
+            this.backXYRailMesh = null;
+
+            this.armSupportX = 0;
+            this.armSupportZ = 0;
+
+            this.threadedRodRadius = utilities.calculateSize(.25);
+            this.threadedRodLength = null;
+            this.threadedRodGeometry = null;
+            this.threadedRodMesh = null;
+
+            this.moveAssembly = function () {
+                //Arm Assembly
+                self.armMountAssemblyMesh.position.x = self.armSupportX;
+                self.armMountAssemblyMesh.position.z = self.armSupportZ + self.armMountAssemblyDef.depth;
+
+                //Side Blocks
+                self.leftXYBlockMesh.position.z = self.armSupportZ;
+                self.rightXYBlockMesh.position.z = self.armSupportZ;
+
+                //Rails
+                self.frontXYRailMesh.position.z = self.armSupportZ + (self.armMountAssemblyDef.depth) - utilities.calculateSize(.75) + (utilities.calculateSize(.703125) / 2);
+                self.backXYRailMesh.position.z = self.armSupportZ + utilities.calculateSize(.703125) + utilities.calculateSize(.75) - (utilities.calculateSize(.703125) / 2);
+
+                //Threaded Rod
+                self.threadedRodMesh.position.z = self.armSupportZ + (self.armMountAssemblyDef.depth / 2);
+
+                //Arm
+                self.roboticArm.assembly.position.x = self.armSupportX + (self.armMountAssemblyDef.depth / 2);
+                self.roboticArm.assembly.position.z = self.armSupportZ + (self.armMountAssemblyDef.depth / 2);
+            };
+
+            this.moveToHome = function () {
+                self.armSupportZ = self.armSupportMinimumZ;
+                self.armSupportX = self.armSupportMinimumX;
+                self.moveAssembly();
+            };
+
+            this.moveLeft = function (options) {
+                self.armSupportX -= utilities.calculateSize(options.distance)
+                self.moveAssembly();
+            };
+
+            this.moveRight = function (options) {
+                self.armSupportX += utilities.calculateSize(options.distance);
+                self.moveAssembly();
+            };
+
+            this.moveUp = function (options) {
+                self.armSupportZ -= utilities.calculateSize(options.distance);
+                self.moveAssembly();
+            };
+
+            this.moveDown = function (options) {
+                self.armSupportZ += utilities.calculateSize(options.distance);
+                self.moveAssembly();
+            };
+
+            this.render = function () {
+                //#region Front/Back Rail Blocks
+                self.xyBlockDef = new xyRailBlock();
+
+                self.leftXYBlockMesh = self.xyBlockDef.create(true);
+                self.leftXYBlockMesh.position.set(baseStructure.postOffset - (self.xyBlockDef.width / 2),
+                                        utilities.calculateSize(30.359375),
+                                        -utilities.calculateSize(32));
+                scene.add(self.leftXYBlockMesh);
+
+                self.rightXYBlockMesh = self.xyBlockDef.create(false);
+                self.rightXYBlockMesh.position.set(baseStructure.tableGeometry.width - baseStructure.postOffset - (self.xyBlockDef.width / 2),
+                                        utilities.calculateSize(30.359375),
+                                        -utilities.calculateSize(32));
+
+                scene.add(self.rightXYBlockMesh);
+                //#end region Front/Back Rail Blocks            
+
+                self.armMountAssemblyMesh = self.armMountAssemblyDef.create();
+
+                self.armMountAssemblyMesh.position.set(0, utilities.calculateSize(30.578125), 0);
+
+                scene.add(self.armMountAssemblyMesh);
+
+                points = [];
+
+                points.push(new THREE.Vector2(utilities.calculateSize(.046875), 0)); //(.625, 0));
+                points.push(new THREE.Vector2(utilities.calculateSize(.359375), utilities.calculateSize(.3125))); //(1.875, 1.25));
+                points.push(new THREE.Vector2(utilities.calculateSize(.65625), 0)); //(3.125, 0));
+                points.push(new THREE.Vector2(utilities.calculateSize(.703125), utilities.calculateSize(.046875))); //(3.75, .625));
+                points.push(new THREE.Vector2(utilities.calculateSize(.359375), utilities.calculateSize(.390625))); //(1.875, 2.5));
+                points.push(new THREE.Vector2(0, utilities.calculateSize(.046875))); //(0, .625));
+                points.push(new THREE.Vector2(utilities.calculateSize(.046875), 0)); //(.625, 0));
+
+                self.xyRailShape = new THREE.Shape(points);
+                var extrudeOptions = { amount: (base.backRightPipeTopMesh.position.x - (base.pipeTopBlockGeo.width / 2)) - (base.backLeftPipeTopMesh.position.x), bevelEnabled: false };
+                self.xyRailGeo = self.xyRailShape.extrude(extrudeOptions);
+                self.frontXYRailMesh = new THREE.Mesh(self.xyRailGeo, utilities.metalMaterial);
+                self.frontXYRailMesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                self.frontXYRailMesh.position.set(self.leftXYBlockMesh.position.x + utilities.calculateSize(1.5),
+                                                    utilities.calculateSize(31.515625),
+                                                    -(utilities.calculateSize(25.359375)));
+                scene.add(self.frontXYRailMesh);
+
+                self.backXYRailMesh = new THREE.Mesh(self.xyRailGeo, utilities.metalMaterial);
+                self.backXYRailMesh.rotateOnAxis(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+                self.backXYRailMesh.position.set(self.leftXYBlockMesh.position.x + utilities.calculateSize(1.5),
+                                                    utilities.calculateSize(31.515625),
+                                                    -(utilities.calculateSize(31)));
+                scene.add(self.backXYRailMesh);
+
+                self.threadedRodLength = self.rightXYBlockMesh.position.x - self.leftXYBlockMesh.position.x;
+                self.threadedRodGeometry = new THREE.CylinderGeometry(self.threadedRodRadius, self.threadedRodRadius, self.threadedRodLength, 32);
+                self.threadedRodMesh = new THREE.Mesh(self.threadedRodGeometry, utilities.metalMaterial);
+                self.threadedRodMesh.rotateOnAxis(new THREE.Vector3(0, 0, 1), Math.PI / 2);
+                self.threadedRodMesh.position.set((self.threadedRodLength / 2) + self.leftXYBlockMesh.position.x + (self.xyBlockDef.width / 2),
+                                                    utilities.calculateSize(33.90625),
+                                                    0);
+                scene.add(self.threadedRodMesh);
+            };
+        };
+
+        var armGripper = function (scene) {
+            var self = this;
+
+            this.moveGripper = function (degrees) {
+                var radians = utilities.getRadians(degrees);
+                var offset = Math.cos(self.rightGearAssembly.rotation.y + utilities.getRadians(degrees));
+
+                var previousRightX = self.rightGearAssembly.position.x;
+                var previousRightZ = self.rightGearAssembly.position.z;
+
+                self.rightGearAssembly.rotation.y += radians;
+                self.leftGearAssembly.rotation.y += -radians;
+                self.rightInternalArmGripperAssembly.rotation.y += radians;
+                self.leftInternalArmGripperAssembly.rotation.y += -radians;
+
+                var newRightX = utilities.calculateSize(1 + (11 / 16)) * Math.sin(self.rightGearAssembly.rotation.y - utilities.getRadians(6.3)); //6.3 is the post offset angle
+                var newRightZ = Math.abs(utilities.calculateSize(1 + (11 / 16)) * Math.cos(self.rightGearAssembly.rotation.y - utilities.getRadians(6.3))); //6.3 is the post offset angle
+
+                //Offset x,z by pivot point
+                newRightZ += self.rightGearAssembly.position.z;
+                newRightX += self.rightGearAssembly.position.x;
+
+                self.rightGripperAssembly.position.set(newRightX, self.rightGripperAssembly.position.y, newRightZ);
+
+                var newLeftX = utilities.calculateSize(1 + (11 / 16)) * Math.sin(self.leftGearAssembly.rotation.y + utilities.getRadians(6.3)); //6.3 is the post offset angle
+                var newLeftZ = Math.abs(utilities.calculateSize(1 + (11 / 16)) * Math.cos(self.leftGearAssembly.rotation.y + utilities.getRadians(6.3))); //6.3 is the post offset angle
+
+                //Offset x,z by pivot point
+                newLeftZ += self.leftGearAssembly.position.z;
+                newLeftX += self.leftGearAssembly.position.x;
+
+                self.leftGripperAssembly.position.set(newLeftX, self.leftGripperAssembly.position.y, newLeftZ);
+            };
+
+            this.create = function () {
+                self.gripper = new THREE.Object3D();
+
+                var gripperAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.gripper.add(gripperAxis);
+
+                self.rightInternalArmGripperAssembly = new THREE.Object3D();
+                var rightGripperAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.rightInternalArmGripperAssembly.add(rightGripperAxis);
+
+                self.leftInternalArmGripperAssembly = new THREE.Object3D();
+                var leftGripperAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.leftInternalArmGripperAssembly.add(leftGripperAxis);
+
+                //Gripper Body
+                var points = [];
+
+                points.push(new THREE.Vector2(0, 0));
+                points.push(new THREE.Vector2(0, utilities.calculateSize(1)));
+                points.push(new THREE.Vector2(utilities.calculateSize(.5), utilities.calculateSize(1.375)));
+                points.push(new THREE.Vector2(utilities.calculateSize(1.5), utilities.calculateSize(1.375)));
+                points.push(new THREE.Vector2(utilities.calculateSize(2), utilities.calculateSize(1)));
+                points.push(new THREE.Vector2(utilities.calculateSize(2), 0));
+
+                self.gripperBody = new THREE.Shape(points);
+
+                self.gripperBodyGeo = self.gripperBody.extrude({ amount: utilities.calculateSize(1), bevelEnabled: false });
+                self.gripperBodyMesh = new THREE.Mesh(self.gripperBodyGeo, utilities.armMaterial);
+
+                self.gripperBodyMesh.rotation.x = utilities.getRadians(90);
+                self.gripperBodyMesh.position.y = utilities.calculateSize(1);
+
+                self.gripper.add(self.gripperBodyMesh);
+
+                //Gripper Gears
+                self.rightGearAssembly = new THREE.Object3D();
+                var rightGearAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.rightGearAssembly.add(rightGearAxis);
+
+                var gearCircleGeo = new THREE.CylinderGeometry(utilities.calculateSize(.5), utilities.calculateSize(.5), utilities.calculateSize(.25), 32);
+                var gearCircleMesh = new THREE.Mesh(gearCircleGeo, utilities.armMaterial);
+                var gearCircle_bps = new ThreeBSP(gearCircleMesh);
+
+                var gearPostGeo = new THREE.CubeGeometry(utilities.calculateSize(.25), utilities.calculateSize(.25), utilities.calculateSize(1.28125), 32, 32);
+                var gearPostMesh = new THREE.Mesh(gearPostGeo, utilities.armMaterial);
+                var gearPost_bsp = new ThreeBSP(gearPostMesh);
+
+                var gearRoundedEndCircleGeo = new THREE.CylinderGeometry(utilities.calculateSize(.125), utilities.calculateSize(.125), utilities.calculateSize(.25), 32);
+                var gearRoundedEndCircleMesh = new THREE.Mesh(gearRoundedEndCircleGeo);
+
+                gearRoundedEndCircleMesh.position.z = (utilities.calculateSize(1.28125) / 2);
+
+                var gearRoundedEndCircle_bsp = new ThreeBSP(gearRoundedEndCircleMesh);
+
+                //Union the rounded end to the post
+                var result = gearPost_bsp.union(gearRoundedEndCircle_bsp);
+
+                var postMesh = result.toMesh(utilities.armMaterial);
+
+                postMesh.position.x = -(utilities.calculateSize(3 / 16));
+                postMesh.position.z = (utilities.calculateSize(1.28125) / 2) + utilities.calculateSize(25 / 64);
+                var gearPost_bsp = new ThreeBSP(postMesh);
+
+                ////Union the Post with Rounded End to the Circle
+                result = gearCircle_bps.union(gearPost_bsp);
+
+                var resultRightMesh = result.toMesh(utilities.armMaterial);
+                var resultLeftMesh = result.toMesh(utilities.armMaterial);
+
+                self.rightGearAssembly.rotation.y = utilities.getRadians(-45);
+
+                self.rightGearAssembly.position.x = utilities.calculateSize(5 / 8);
+                self.rightGearAssembly.position.y = utilities.calculateSize(1) + (utilities.calculateSize(.25) / 2);
+                self.rightGearAssembly.position.z = utilities.calculateSize(.5);
+
+                self.rightGearAssembly.add(resultRightMesh);
+                self.gripper.add(self.rightGearAssembly);
+
+                self.leftGearAssembly = new THREE.Object3D();
+                var leftGearAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.leftGearAssembly.add(leftGearAxis);
+
+                resultLeftMesh.rotation.z = utilities.getRadians(180);
+
+                self.leftGearAssembly.add(resultLeftMesh);
+
+                self.leftGearAssembly.rotation.y = utilities.getRadians(45);
+
+                self.leftGearAssembly.position.x = utilities.calculateSize(1 + (3 / 8));
+                self.leftGearAssembly.position.y = utilities.calculateSize(1) + (utilities.calculateSize(.25) / 2);
+                self.leftGearAssembly.position.z = utilities.calculateSize(.5);
+
+                self.gripper.add(self.leftGearAssembly);
+
+                //Gripper Internal Arm
+                var internalArmGeo = new THREE.CubeGeometry(utilities.calculateSize(.25), utilities.calculateSize(.25), utilities.calculateSize(1.5), 32);
+                var internalArmMesh = new THREE.Mesh(internalArmGeo, utilities.armMaterial);
+                var internalArm_bsp = new ThreeBSP(internalArmMesh);
+
+                var internalRoundoverGeo = new THREE.CylinderGeometry(utilities.calculateSize(.125), utilities.calculateSize(.125), utilities.calculateSize(.25), 32);
+                var internalRoundoverBackEndMesh = new THREE.Mesh(internalRoundoverGeo, utilities.armMaterial);
+                var internalRoundoverFrontEndMesh = new THREE.Mesh(internalRoundoverGeo, utilities.armMaterial);
+
+                internalRoundoverBackEndMesh.position.z = -utilities.calculateSize(.75);
+                var backRoundover_bsp = new ThreeBSP(internalRoundoverBackEndMesh);
+
+                internalRoundoverFrontEndMesh.position.z = utilities.calculateSize(.75);
+                var frontRoundover_bsp = new ThreeBSP(internalRoundoverFrontEndMesh);
+
+                var result = internalArm_bsp.union(frontRoundover_bsp);
+
+                result = result.union(backRoundover_bsp);
+
+                //Top Right Internal Arm
+                var topRightInternalArmMesh = result.toMesh(utilities.armMaterial);
+
+                topRightInternalArmMesh.position.z = utilities.calculateSize(3 / 4);
+
+                self.rightInternalArmGripperAssembly.rotation.y = utilities.getRadians(-45);
+
+                self.rightInternalArmGripperAssembly.position.x = utilities.calculateSize(3 / 4);
+                self.rightInternalArmGripperAssembly.position.y = utilities.calculateSize(1) + (utilities.calculateSize(.25) / 2);
+                self.rightInternalArmGripperAssembly.position.z = utilities.calculateSize(1 + (15 / 64));
+
+                self.rightInternalArmGripperAssembly.add(topRightInternalArmMesh);
+
+                //Bottom Right Internal Arm
+                var bottomRightInternalArmMesh = result.toMesh(utilities.armMaterial);
+
+                bottomRightInternalArmMesh.position.z = utilities.calculateSize(3 / 4);
+                bottomRightInternalArmMesh.position.y = -utilities.calculateSize(1 + (1 / 4));
+
+                self.rightInternalArmGripperAssembly.add(bottomRightInternalArmMesh);
+
+                //Top Left Internal Arm
+                var topLeftInternalArmMesh = result.toMesh(utilities.armMaterial);
+                topLeftInternalArmMesh.rotation.z = utilities.getRadians(180);
+
+                topLeftInternalArmMesh.position.z = utilities.calculateSize(3 / 4);
+
+                self.leftInternalArmGripperAssembly.rotation.y = utilities.getRadians(45);
+
+                self.leftInternalArmGripperAssembly.position.x = utilities.calculateSize(1 + (1 / 4));
+                self.leftInternalArmGripperAssembly.position.y = utilities.calculateSize(1) + (utilities.calculateSize(.25) / 2);
+                self.leftInternalArmGripperAssembly.position.z = utilities.calculateSize(1 + (15 / 64));
+
+                self.leftInternalArmGripperAssembly.add(topLeftInternalArmMesh);
+
+                //Bottom Left Internal Arm
+                var bottomLeftInternalArmMesh = result.toMesh(utilities.armMaterial);
+
+                bottomLeftInternalArmMesh.rotation.z = utilities.getRadians(180);
+
+                bottomLeftInternalArmMesh.position.y = -utilities.calculateSize(1 + (1 / 4)); // utilities.calculateSize(1) + (utilities.calculateSize(.25) / 2);
+                bottomLeftInternalArmMesh.position.z = utilities.calculateSize(3 / 4);
+
+                self.leftInternalArmGripperAssembly.add(bottomLeftInternalArmMesh);
+
+                //Pad/Gear Connector
+                //26.9
+                var gripperBasePostGeo = new THREE.CubeGeometry(utilities.calculateSize(.25), utilities.calculateSize(1), utilities.calculateSize(55 / 64), 32);
+                var gripperBasePostMesh = new THREE.Mesh(gripperBasePostGeo, utilities.armMaterial);
+                var gripperBasePost_bsp = new ThreeBSP(gripperBasePostMesh);
+
+                var gripperBaseRoundoverGeo = new THREE.CylinderGeometry(utilities.calculateSize(.125), utilities.calculateSize(.125), utilities.calculateSize(1), 32);
+                var gripperBaseRoundoverMesh = new THREE.Mesh(gripperBaseRoundoverGeo, utilities.armMaterial);
+                gripperBaseRoundoverMesh.position.z = -(utilities.calculateSize(55 / 64) / 2);
+                var gripperBaseRoundover_bsp = new ThreeBSP(gripperBaseRoundoverMesh);
+
+                var result = gripperBasePost_bsp.union(gripperBaseRoundover_bsp);
+
+                var gripperPadGeo = new THREE.CubeGeometry(utilities.calculateSize(.25), utilities.calculateSize(1), utilities.calculateSize(2 + (1 / 32)), 32);
+                var gripperPadMesh = new THREE.Mesh(gripperPadGeo, utilities.armMaterial);
+
+                gripperPadMesh.rotation.y = utilities.getRadians(-26.9);
+
+                gripperPadMesh.position.x = -utilities.calculateSize(57 / 128);
+                gripperPadMesh.position.z = utilities.calculateSize(55 / 64) + utilities.calculateSize(.25) + utilities.calculateSize(.125) + utilities.calculateSize(5 / 128);
+
+                var gripperPad_bsp = new ThreeBSP(gripperPadMesh);
+
+                result = result.union(gripperPad_bsp);
+
+                //Right Gripper
+                var finalRightGripperMesh = result.toMesh(utilities.armMaterial);
+
+                self.rightGripperAssembly = new THREE.Object3D();
+
+                var rightGripperAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.rightGripperAssembly.add(rightGripperAxis);
+
+                self.rightGripperAssembly.add(finalRightGripperMesh);
+
+                self.rightGripperAssembly.rotation.y = utilities.getRadians(26.9);
+
+                finalRightGripperMesh.position.y = utilities.calculateSize(.5);
+
+                finalRightGripperMesh.position.z = utilities.calculateSize(55 / 64) / 2;
+                self.rightGripperAssembly.position.z = utilities.calculateSize(1 + (35 / 64));
+                self.rightGripperAssembly.position.x = -(utilities.calculateSize(11 / 16));
+
+                self.gripper.add(self.rightGripperAssembly);
+
+                //Left Gripper
+                var finalLeftGripperMesh = result.toMesh(utilities.armMaterial);
+
+                self.leftGripperAssembly = new THREE.Object3D();
+
+                var leftGripperAxis = new THREE.AxisHelper(utilities.calculateSize(.5));
+                self.leftGripperAssembly.add(leftGripperAxis);
+                self.leftGripperAssembly.add(finalLeftGripperMesh);
+                finalLeftGripperMesh.rotation.z = utilities.getRadians(180);
+                self.leftGripperAssembly.rotation.y = utilities.getRadians(-26.9);
+
+                finalLeftGripperMesh.position.y = utilities.calculateSize(.5);
+
+                finalLeftGripperMesh.position.z = utilities.calculateSize(55 / 64) / 2;
+                self.leftGripperAssembly.position.z = utilities.calculateSize(1 + (35 / 64));
+                self.leftGripperAssembly.position.x = (utilities.calculateSize(2 + (11 / 16)));
+
+                self.gripper.add(self.leftGripperAssembly);
+
+                self.gripper.add(self.rightInternalArmGripperAssembly);
+                self.gripper.add(self.leftInternalArmGripperAssembly);
+
+                return self.gripper;
+            };
+        };
+
+        var robotArmLinkage = function () {
+            var self = this;
+
+            //this.startJointRotateVector = null;
+            //this.endJointRotateVector = null;
+            this.geometry = null;
+
+            this.create = function (width, height, depth) {
+                self.width = width;
+                self.height = height + width;
+                //self.height = height;
+                self.depth = depth;
+                self.rotatingPointY = 0;
+
+                var curveRadius = width / 2 || utilities.calculateSize(1);
+
+                self.linkCurveGeo = new THREE.CylinderGeometry(curveRadius, curveRadius, depth || utilities.calculateSize(.125), 32);
+
+                self.topLinkCurveMesh = new THREE.Mesh(self.linkCurveGeo, utilities.armMaterial);
+                self.topLinkCurveMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), utilities.ninetyDegreesRad);
+                self.topLinkCurveMesh.position.set(0, ((height || utilities.calculateSize(5)) / 2), 0);
+                self.topLinkCurve_bsp = new ThreeBSP(self.topLinkCurveMesh);
+
+                self.linkRectangleGeo = new THREE.CubeGeometry(width || utilities.calculateSize(2), height || utilities.calculateSize(5), depth || utilities.calculateSize(.125), 32, 32);
+                self.linkRectangleMesh = new THREE.Mesh(self.linkRectangleGeo, utilities.armMaterial);
+                self.linkRectangleMesh.position.set(0, 0, 0);
+                self.linkRectangle_bsp = new ThreeBSP(self.linkRectangleMesh);
+
+                var result = self.linkRectangle_bsp.union(self.topLinkCurve_bsp);
+
+                self.bottomLinkCurveMesh = new THREE.Mesh(self.linkCurveGeo, new THREE.MeshLambertMaterial({ color: 0xFF0000 })); // utilities.armMaterial);
+                self.bottomLinkCurveMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), utilities.ninetyDegreesRad);
+                self.bottomLinkCurveMesh.position.set(0, -((height || utilities.calculateSize(5)) / 2), 0);
+                self.bottomLinkCurve_bsp = new ThreeBSP(self.bottomLinkCurveMesh);
+
+                result = result.union(self.bottomLinkCurve_bsp);
+
+                self.topMotorHoleGeo = new THREE.CylinderGeometry(utilities.calculateSize(.125), utilities.calculateSize(.125), utilities.calculateSize(.125), 32);
+                self.topMotorHoleMesh = new THREE.Mesh(self.topMotorHoleGeo, new THREE.MeshLambertMaterial({ color: 0xFF0000 })); // utilities.armMaterial);
+                self.topMotorHoleMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), utilities.ninetyDegreesRad);
+                self.topMotorHoleMesh.position.set(0, ((height || utilities.calculateSize(5)) / 2), 0);
+                self.topMotorHole_bsp = new ThreeBSP(self.topMotorHoleMesh);
+
+                result = result.subtract(self.topMotorHole_bsp);
+
+                self.bottomMotorHoleGeo = new THREE.CylinderGeometry(utilities.calculateSize(.125), utilities.calculateSize(.125), utilities.calculateSize(.125), 32);
+                self.bottomMotorHoleMesh = new THREE.Mesh(self.bottomMotorHoleGeo, new THREE.MeshLambertMaterial({ color: 0xFF0000 })); // utilities.armMaterial);
+                self.bottomMotorHoleMesh.rotateOnAxis(new THREE.Vector3(1, 0, 0), utilities.ninetyDegreesRad);
+                self.bottomMotorHoleMesh.position.set(0, -((height || utilities.calculateSize(5)) / 2), 0);
+                self.bottomMotorHole_bsp = new ThreeBSP(self.bottomMotorHoleMesh);
+
+                result = result.subtract(self.bottomMotorHole_bsp);
+
+                self.geometry = result.toGeometry();
+
+                self.linkageMesh = result.toMesh(utilities.armMaterial);
+
+                self.rotatingPointY = self.width / 2;
+
+                return self.linkageMesh;
+            };
+        };
+
+        var roboticArmDef = function (armDefinition, scene, xyAssembly) {
+            var self = this;
+
+            this.joints = armDefinition.Joints;
+            this.linkages = [];
+
+            this.baseJoint = {};
+            this.shoulderJoint = {};
+            this.elbowJoint = {};
+            this.wristJoint = {};
+
+            this.baseGeometry = null;
+            this.baseMesh = null;
+            this.baseRadius = utilities.calculateSize(1.5);
+            this.baseHeight = utilities.calculateSize(1);
+
+            this.rotateJoint = function (options) {
+                var linkage = self.linkages[parseInt(options.JointIndex)];
+
+                linkage.rotateOnAxis(new THREE.Vector3(0, 1, 0), utilities.getRadians(parseFloat(options.distance)));
+                //self.assembly.rotateOnAxis(new THREE.Vector3(0, 1, 0), parseFloat(options.distance) * (Math.PI / 180));
+            };
+
+            this.bendJoint = function (options) {
+                var jointIndex = options.JointIndex;
+
+                var linkage = self.linkages[jointIndex];
+
+                linkage.rotation.z = parseFloat(options.distance) * (Math.PI / 180);
+            };
+
+            this.moveArm = function (options) {
+                var movements = options.movements;
+
+                for (var x = 0; x < movements.length; x++) {
+                    var movement = movements[x];
+
+                    if (self.joints[movement.JointIndex].Orientation == JointOrientation.Bend) {
+                        self.bendJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
+                    }
+                    else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Rotate) {
+                        self.rotateJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
+                    }
+                    else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Gripper) {
+                        gripper.moveGripper(movement.distance);
+                    }
+                }
+            };
+
+            this.render = function () {
+                self.assembly = new THREE.Object3D();
+                self.linkages = [];
+
+                var linkDef = null;
+                var linkGeometry = null;
+                var rotateLinkMesh = null;
+                var frontLinkMesh = null;
+                var backLinkMesh = null;
+                var endPoint = new THREE.Vector3(0, 0, 0);
+                var linkInset = 0;
+                var previousLinkage = null;
+
+                var parentAssembly = self.assembly;
+
+                for (var linkIndex = 0; linkIndex < armDefinition.Linkages.length; linkIndex++) {
+                    var linkage = armDefinition.Linkages[linkIndex];
+                    var startJoint = linkage.StartJoint;
+                    var endJoint = linkage.EndJoint;
+
+                    //Create an assembly to hold all child links in the assembly so they move with this joint
+                    var childAssembly = new THREE.Object3D();
+                    var childRangeAssembly = new THREE.Object3D();
+                    childRangeAssembly.add(childAssembly);
+
+                    var axisHelper = new THREE.AxisHelper(utilities.calculateSize(3));
+                    childAssembly.add(axisHelper);
+
+                    if (linkage.StartJoint.Orientation == JointOrientation.Rotate) {
+                        var linkRadius = utilities.calculateSize(linkage.Radius);
+                        linkGeometry = new THREE.CylinderGeometry(linkRadius, linkRadius, utilities.calculateSize(linkage.Length), 32);
+                        rotateLinkMesh = new THREE.Mesh(linkGeometry, utilities.armMaterial);
+                        rotateLinkMesh.position = new THREE.Vector3(0,
+                                                                    (linkGeometry.height / 2),
+                                                                    0);
+
+                        childAssembly.add(rotateLinkMesh);
+
+                        //childAssembly.position.set(0,
+                        //                            endPoint.y - (linkGeometry.height / 2),
+                        //                            0);
+                        childRangeAssembly.position.set(0,
+                                                         endPoint.y - (linkGeometry.height / 2),
+                                                         0);
+
+                        //Move the endpoint down by half of the geometry
+                        endPoint = new THREE.Vector3(endPoint.x,
+                                                    0,
+                                                    endPoint.z);
+
+                        self.linkages.push(childAssembly);
+
+                        linkInset = 0;
+                        previousLinkGeo = linkGeometry;
+                    }
+                    else if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
+                        linkDef = new robotArmLinkage();
+
+                        var linkageThickness = utilities.calculateSize(.125);
+
+                        frontLinkMesh = linkDef.create(utilities.calculateSize(linkage.Width), utilities.calculateSize(linkage.Length), linkageThickness);
+                        backLinkMesh = linkDef.create(utilities.calculateSize(linkage.Width), utilities.calculateSize(linkage.Length), linkageThickness);
+
+                        childAssembly.add(frontLinkMesh);
+                        childAssembly.add(backLinkMesh);
+
+                        backLinkMesh.position.set(0,
+                                                    -((linkDef.height / 2) - (linkDef.width / 2)),
+                                                    -(utilities.calculateSize(1.078125) - linkInset));
+                        frontLinkMesh.position.set(0,
+                                                    -((linkDef.height / 2) - (linkDef.width / 2)),
+                                                    (utilities.calculateSize(1.078125) - linkInset));
+
+                        //childAssembly.position.set(0,
+                        //                            endPoint.y - (linkDef.width / 2),
+                        //                            0);
+
+                        childRangeAssembly.position.set(0,
+                                endPoint.y - (linkDef.width / 2),
+                                0);
+
+                        if (linkage.EndJoint && linkage.EndJoint.Orientation == JointOrientation.Rotate) {
+                            var nextLink = (linkIndex < armDefinition.Linkages.length ? armDefinition.Linkages[linkIndex + 1] : null);
+
+                            endPoint = new THREE.Vector3(endPoint.x,
+                                                        -(linkDef.height - (nextLink ? (utilities.calculateSize(nextLink.Length) / 2) : 0)), //(utilities.calculateSize(linkage.Width)
+                                                        endPoint.z);
+                        }
+                        else {
+                            endPoint = new THREE.Vector3(endPoint.x,
+                                            -(linkDef.height - (linkDef.width / 2) - (linkDef.width)), //Relative to the assembly
+                                            endPoint.z);
+                        }
+
+                        //- ((linkDef.height/2) - (utilities.calculateSize(.5)/2))
+
+                        self.linkages.push(childAssembly);
+
+                        linkInset += linkageThickness;
+                        previousLinkGeo = linkDef.geometry;
+                    }
+                    else { //Gripper
+                        gripper = new armGripper();
+
+                        var gripperInstance = gripper.create();
+
+                        childAssembly.add(gripperInstance);
+
+                        childAssembly.rotation.x = utilities.getRadians(90);
+                        childAssembly.rotation.z = utilities.getRadians(-90);
+
+                        //childAssembly.position.set(endPoint.x - utilities.calculateSize(.5),
+                        //                            endPoint.y - utilities.calculateSize(1),
+                        //                            utilities.calculateSize(1));
+                        childRangeAssembly.position.set(endPoint.x - utilities.calculateSize(.5),
+                                                    endPoint.y - utilities.calculateSize(1),
+                                                    utilities.calculateSize(1));
+
+                        self.linkages.push(childAssembly);
+                    }
+
+                    if (linkage.StartJoint.IsBaseJoint) {
+                        self.baseGeometry = linkGeometry;
+                    }
+
+                    //parentAssembly.add(childAssembly);
+                    parentAssembly.add(childRangeAssembly);
+
+                    //parentAssembly = childAssembly;
+                    parentAssembly = childAssembly;
+                }
+
+                self.assembly.position.set(0,
+                                            xyAssembly.armMountAssemblyMesh.position.y - (self.baseGeometry.height / 2),
+                                            0);
+                scene.add(self.assembly);
+            };
+        };
+
+        window.addEventListener('resize', function () {
+            var WIDTH = window.innerWidth,
+                HEIGHT = window.innerHeight;
+            renderer.setSize(WIDTH, HEIGHT);
+            camera.aspect = WIDTH / HEIGHT;
+            camera.updateProjectionMatrix();
+        });
+
+        function joystickHandler(command, body) {
+            switch (command) {
+                case 'operateGripper':
+                    self.gripper.moveGripper(body.distance);
+                    break;
+                case 'moveArm':
+                case 'moveObject':
+                    roboticArm.moveArm(body);
+                    break;
+                default:
+                    switch (parseInt(body.mode)) {
+                        case ArmMode.MoveBase:
+                            if (xyAssembly[command]) {
+                                xyAssembly[command](body);
+                            }
+                            break;
+                        case ArmMode.RotateBase:
+                        case ArmMode.BendShoulder:
+                        case ArmMode.BendElbow:
+                        case ArmMode.RotateWrist:
+                        case ArmMode.BendWrist:
+                            if (roboticArm[command]) {
+                                roboticArm[command](body);
+                            }
+                            break;
+                    }
+            }
+
+            return false;
+        }
+
+        var scene = null;
+        var camera = null;
+        var controls = null;
+
+        var renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        function render() {
+            requestAnimationFrame(render);
+            renderer.render(scene, camera);
+            controls.update();
+        }
+
+        var base = null;
+        var xyAssembly = null;
+        var roboticArm = null;
+        var gripper = null;
+        var gripperPositionSphere = null;
+
+        $(function () {
+            var armHub = $.connection.armHub;
+
+            armHub.client.init = function (parameters) {
+                scene = new THREE.Scene();
+                camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 0.1, 10000);
+
+                var light = new THREE.AmbientLight(0x404040); // soft white light
+                scene.add(light);
+
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+
+                base = new baseStructure(scene);
+
+                xyAssembly = new xyAssemblyDef(scene, base);
+                xyAssembly.armSupportX = utilities.calculateSize(parameters.currentX);
+                xyAssembly.armSupportZ = utilities.calculateSize(parameters.currentZ);
+
+                base.render();
+
+                xyAssembly.render();
+
+                roboticArm = new roboticArmDef(parameters.ArmDefinition, scene, xyAssembly);
+                roboticArm.render();
+
+                xyAssembly.roboticArm = roboticArm;
+
+                xyAssembly.moveAssembly();
+
+                camera.position.x = base.tableGeometry.width / 2;
+                camera.position.y = base.pipeGeo.height / 2;
+                camera.position.z = 350;
+
+                var frontLight = new THREE.PointLight(0xffffff);
+                frontLight.position.set(base.tableGeometry.width / 2, base.tableGeometry.height + base.pipeGeo.height, (base.tableGeometry.depth / 2));
+                scene.add(frontLight);
+
+                render();
+            };
+
+            armHub.client.sendCommand = function (command, body) {
+                switch (command) {
+                    case 'moveLeft':
+                    case 'moveRight':
+                    case 'moveUp':
+                    case 'moveDown':
+                    case 'rotateJoint':
+                    case 'bendJoint':
+                    case 'moveArm':
+                    case 'operateGripper':
+                    case 'moveObject':
+                        joystickHandler(command, body);
+                        break
+                    default:
+                        break;
+                }
+
+                //joystickHandler($.parseJSON(body));
+            };
+
+            armHub.client.getObstacles = function () {
+                var obstacles = [];
+
+                obstacles.push({
+                    points: [{ x: 0, y: 0, z: 0 },
+                            { x: 1, y: 0, z: 0 },
+                            { x: 1, y: 0, z: 1 },
+                            { x: 0, y: 0, z: 1 }]
+                });
+
+                return 'hello';
+            };
+
+            armHub.client.plotMovementMatrix = function (matrix) {
+                var pointGeo = new THREE.SphereGeometry(utilities.calculateSize(1 / 8), 32);
+
+
+                for (var index in matrix) {
+                    var yOffset = 0;
+
+                    var pieces = index.split('|');
+
+                    var jointIndex = pieces[3];
+                    var pointVector = new THREE.Vector3(utilities.calculateSize(parseFloat(pieces[0])), utilities.calculateSize(parseFloat(pieces[1])), utilities.calculateSize(parseFloat(pieces[2])));
+
+                    var pointMesh = new THREE.Mesh(pointGeo, utilities.matrixPoint);
+
+                    var linkage = self.roboticArm.linkages[jointIndex];
+
+                    if (pointVector) {
+                        pointMesh.position.x = pointVector.x;
+                        pointMesh.position.y = pointVector.y + yOffset;
+                        pointMesh.position.z = pointVector.z;
+                    }
+
+                    linkage.parent.add(pointMesh);
+                }
+            };
+
+            armHub.client.plotCurrentGripperLocation = function (x, y, z) {
+                var locationGeo = new THREE.SphereGeometry(utilities.calculateSize(1), 32);
+                gripperPositionSphere = new THREE.Mesh(locationGeo, new THREE.MeshLambertMaterial({ color: 0xFF00FF }));
+
+                //Offset by arm Center
+                gripperPositionSphere.position.x = utilities.calculateSize(x) + self.xyAssembly.armMountAssemblyDef.armMountWidth / 2;
+                gripperPositionSphere.position.y = utilities.calculateSize(y);
+                gripperPositionSphere.position.z = utilities.calculateSize(z) + self.xyAssembly.armMountAssemblyDef.armMountDepth / 2;
+
+                scene.add(gripperPositionSphere);
+            };
+
+            armHub.client.moveCurrentGripperLocation = function (x, y, z) {
+                gripperPositionSphere.position.x = utilities.calculateSize(x) + self.xyAssembly.armMountAssemblyDef.armMountWidth / 2;
+                gripperPositionSphere.position.y = utilities.calculateSize(y);
+                gripperPositionSphere.position.z = utilities.calculateSize(z) + self.xyAssembly.armMountAssemblyDef.armMountDepth / 2;
+                //gripperPositionSphere.position.x = x;
+                //gripperPositionSphere.position.y = y;
+                //gripperPositionSphere.position.z = z;
+            };
+
+            $.connection.hub.start();
+        });
+    </script>
+}

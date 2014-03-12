@@ -1,0 +1,41 @@
+﻿<Window x:Class="RoboticArmTableWPF.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="MainWindow" Height="338.61" Width="525">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="150"></ColumnDefinition>
+            <ColumnDefinition Width="*"></ColumnDefinition>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="200*"></RowDefinition>            <RowDefinition Height="25"></RowDefinition>
+        </Grid.RowDefinitions>
+        <Viewport3D Grid.Column="1" Grid.Row="0" x:Name="ArmViewPort">
+            <Viewport3D.Camera>
+                <PerspectiveCamera 
+						FarPlaneDistance="20" 
+						LookDirection="0,0,1" 
+						UpDirection="0,1,0" 
+						NearPlaneDistance="1" 
+						Position="0,0,-20" 
+						FieldOfView="60" />
+            </Viewport3D.Camera>            
+        </Viewport3D>
+        <Canvas x:Name="ArmCanvas" Visibility="Hidden" Grid.Column="1" Grid.Row="0" Background="Blue">
+            <!--<Canvas.LayoutTransform>
+                <ScaleTransform ScaleX="1" ScaleY="-1" CenterX=".5" CenterY=".5" />
+            </Canvas.LayoutTransform>-->
+        </Canvas>
+        <StackPanel Orientation="Vertical" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="1">
+            <Button x:Name="InitializeArm" Content="Initialize Arm" Margin="0,0,0,0" Width="93" Click="InitializeArm_Click" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <DataGrid RowHeaderWidth="0" x:Name="JointEditor" AutoGenerateColumns="False">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Width="50" Binding="{Binding Name}"></DataGridTextColumn>
+                    <DataGridTextColumn Width="50" Binding="{Binding CurrentRotationDegree}"></DataGridTextColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+            <Button x:Name="ChangeJoints" Content="Change Joints" Click="ChangeJoints_Click" HorizontalAlignment="Center"></Button>
+        </StackPanel>
+        <Label x:Name="StatusLabel" Grid.Row="2" Content="Ready"/>
+    </Grid>
+</Window>

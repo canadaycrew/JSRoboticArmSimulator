@@ -1,0 +1,17 @@
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\RoboticArmTableWPF.exe.config
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\RoboticArmTableWPF.exe
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\RoboticArmTableWPF.pdb
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\RoboticArmTableCore.dll
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\RoboticArmTableCore.pdb
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.csprojResolveAssemblyReference.cache
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\MainWindow.baml
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\MainWindow.g.cs
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\App.g.cs
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF_MarkupCompile.cache
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.g.resources
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.Properties.Resources.resources
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.csproj.GenerateResource.Cache
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.exe
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\obj\Debug\RoboticArmTableWPF.pdb
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\Newtonsoft.Json.dll
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableWPF\bin\Debug\Newtonsoft.Json.xml
