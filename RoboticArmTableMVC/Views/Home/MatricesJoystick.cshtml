@@ -1,0 +1,61 @@
+﻿@{
+    ViewBag.Title = "Matrices Joystick";
+}
+
+<h2>Matrices Joystick</h2>
+
+<div data-ng-app="RoboticArmTest" data-ng-controller="RoboticArmTestController">
+    <div>End Location</div>
+    <div>
+        x: <span data-ng-bind="viewModel.endPosition.x"></span>
+    </div>
+    <div>
+        y: <span data-ng-bind="viewModel.endPosition.y"></span>
+    </div>
+    <div>
+        z: <span data-ng-bind="viewModel.endPosition.z"></span>
+    </div>
+    <div id="jointLocations" data-ng-repeat="(key, value) in viewModel.armConfig.joints">
+        <div>Joint <span data-ng-bind="key"></span>:</div>
+        <div data-ng-repeat="(prop, pvalue) in value">
+            <div style="padding-left: 15px;"><span data-ng-bind="prop"></span>: <span data-ng-bind="pvalue"></span></div>
+        </div>
+    </div>
+</div>
+@section scripts {
+    <script src="~/node_modules/mathjs/dist/math.js"></script>
+    <script src="~/Scripts/angular.min.js"></script>
+    <script src="~/Scripts/ArmController.js"></script>
+    <script type="text/javascript" language="javascript">
+        var module = angular.module('RoboticArmTest', []);
+
+        module.controller('RoboticArmTestController', ['$scope', function ($scope) {
+            $scope.viewModel = ViewModel();
+            $scope.controller = ArmController($scope.viewModel);
+            $scope.joystick = ArmJoystick({ controller: $scope.controller, step: 1 });
+
+            $scope.controller.onChange = function (changedViewModel) {
+                $scope.$apply(function () {
+                    $scope.viewModel = changedViewModel;
+                });
+            };
+
+            document.onkeyup = function (e) {
+                switch (e.keyCode) {
+                    case 39: //Right
+                        $scope.joystick.MoveRight();
+                        break;
+                    case 40: //Down
+                        $scope.joystick.MoveDown();
+                        break;
+                    case 37: //Left
+                        $scope.joystick.MoveLeft();
+                        break;
+                    case 38: //Up
+                        $scope.joystick.MoveUp();
+                        break;
+                }
+            };
+        }]);
+    </script>
+}

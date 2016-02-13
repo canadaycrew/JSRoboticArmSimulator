@@ -9,6 +9,7 @@
     @*<script src="~/Scripts/knockout-2.2.0.js"></script>*@
     <script src="~/Scripts/knockout-2.2.0.debug.js"></script>
     <script src="~/Scripts/utilities.js"></script>
+    <script src="~/Scripts/sylvester.js"></script>
     <script type="text/javascript">
         var shoulderBaseJoint = {
             Name: 'ShoulderBase',
@@ -33,8 +34,8 @@
             Orientation: JointOrientation.Bend,
             HomeDegree: 0,
             CurrentRotationDegree: 0,
-            MinimumRotationDegree: -90,
-            MaximumRotationDegree: 90
+            MinimumRotationDegree: -165,
+            MaximumRotationDegree: 165
         };
 
         var wristBend = {
@@ -64,50 +65,62 @@
             MaximumRotationDegree: 47
         };
 
+        var shoulderBaseLink = {
+            StartJoint: shoulderBaseJoint,
+            EndJoint: shoulderUpDownJoint,
+            Length: 1,
+            Name: "ShoulderBaseToUpDown",
+            Radius: 1.5
+        };
+
+        var shoulderToElbowLink = {
+            StartJoint: shoulderUpDownJoint,
+            EndJoint: elbowJoint,
+            Length: 8.75,
+            Name: "ShoulderToElbow",
+            Width: 2
+        };
+
+        var elbowToWristLink = {
+            StartJoint: elbowJoint,
+            EndJoint: wristRotate,
+            Length: 5.75,
+            Name: "ElbowToWrist",
+            Width: 2
+        };
+
+        var wristRotateLink = {
+            StartJoint: wristRotate,
+            EndJoint: wristBend,
+            Length: 1,
+            Name: "Wrist",
+            Radius: 1.5
+        };
+
+        var wristToGripperLink = {
+            StartJoint: wristBend,
+            EndJoint: gripperJoint,
+            Length: 1,
+            Name: "WristToGripper",
+            Width: 1
+        };
+
+        var gripperLink = {
+            StartJoint: gripperJoint,
+            Length: 5,
+            Name: "Gripper",
+            Width: 1,
+            Reach: 6
+        };
+
         var arm = {
             Joints: [shoulderBaseJoint, shoulderUpDownJoint, elbowJoint, wristRotate, wristBend, gripperJoint],
-            Linkages: [{
-                StartJoint: shoulderBaseJoint,
-                EndJoint: shoulderUpDownJoint,
-                Length: 1,
-                Name: "ShoulderBaseToUpDown",
-                Radius: 1.5
-            },
-            {
-                StartJoint: shoulderUpDownJoint,
-                EndJoint: elbowJoint,
-                Length: 8.75,
-                Name: "ShoulderToElbow",
-                Width: 2
-            },
-            {
-                StartJoint: elbowJoint,
-                EndJoint: wristRotate,
-                Length: 5.75,
-                Name: "ElbowToWrist",
-                Width: 2
-            },
-            {
-                StartJoint: wristRotate,
-                EndJoint: wristBend,
-                Length: 1,
-                Name: "Wrist",
-                Radius: 1.5
-            },
-            {
-                StartJoint: wristBend,
-                EndJoint: gripperJoint,
-                Length: 1,
-                Name: "WristToGripper",
-                Width: 1
-            },
-            {
-                StartJoint: gripperJoint,
-                Length: 1,
-                Name: "Gripper",
-                Width: 1,
-                Reach: 4
-            }]
+            Linkages: [shoulderBaseLink,
+            shoulderToElbowLink,
+            elbowToWristLink,
+            wristRotateLink,
+            wristToGripperLink,
+            gripperLink]
         };
 
         var controller = function (armHub) {
@@ -117,24 +130,47 @@
 
             this.obstacles = [];
             this.movableObjects = [];
+            this.movements = ko.observableArray();
 
             this.increment = .25;
             this.rotationIncrement = 1;
 
+            this.minimumGripperX = 0;
+            this.maximumGripperX = 0;
+
+            this.minimumGripperY = 0;
+            this.maximumGripperY = 0;
+
+            this.minimumGripperZ = 0;
+            this.maximumGripperZ = 0;
+
             this.minimumX = 3.25;
-            this.minimumZ = -4-7;
             this.maximumX = 49.75;
+
+            this.minimumZ = -4 - 7;
             this.maximumZ = -32;
-            this.minimumY = 25;
-            this.maximumY = -(1 + (13/16));
 
-            this.currentX = self.minimumX;
-            this.currentZ = self.minimumZ;
-            this.currentY = self.minimumY;
-            this.currentGripperX = 0;
-            this.currentGripperY = 0;
-            this.currentGripperZ = self.minimumZ;
+            this.maximumY = 30 + (37 / 64);
+            this.minimumY = 4; //(1 + (13/16));
 
+            this.currentX = ko.observable(self.minimumX);
+            this.currentZ = ko.observable(self.minimumZ);
+            this.currentY = ko.observable(self.maximumY);
+
+            this.currentGripperX = ko.observable(0);
+            this.currentGripperY = ko.observable(0);
+            this.currentGripperZ = ko.observable(self.minimumZ);
+
+            this.debugDetails = ko.observable({});
+
+            //alpha, d, r(a), theta
+            this.dhTransformationsParameters = [
+                [90, 0, 0],
+                [0, 0, 8.75],
+                [90, 0, 5.75],
+                [90, 0, 0],
+                [90, 0, 0]
+            ];
             this.CurrentMode = ko.observable(ArmMode.MoveBase);
 
             this.arm = null;
@@ -155,17 +191,16 @@
                     var linkage = linkages[linkageIndex]
                     var joint = linkage.StartJoint;
 
-                    for(var rotationDegree = (joint.MinimumRotationDegree || 0); rotationDegree <= joint.MaximumRotationDegree; rotationDegree += self.rotationIncrement)
-                    {   
+                    for (var rotationDegree = (joint.MinimumRotationDegree || 0) ; rotationDegree <= joint.MaximumRotationDegree; rotationDegree += self.rotationIncrement) {
                         var jointX = 0;
                         var jointY = 0;
                         var jointZ = 0;
 
-                        if(joint.Orientation == JointOrientation.Bend) {
+                        if (joint.Orientation == JointOrientation.Bend) {
                             jointX = Math.sin(utilities.getRadians(rotationDegree)) * linkage.Length;
                             jointY = -(Math.cos(utilities.getRadians(rotationDegree)) * linkage.Length);
                         }
-                        else if(joint.Orientation == JointOrientation.Rotate) {
+                        else if (joint.Orientation == JointOrientation.Rotate) {
                             jointX = Math.cos(utilities.getRadians(rotationDegree)) * linkage.Radius;
                             jointZ = Math.sin(utilities.getRadians(rotationDegree)) * linkage.Radius;
                         }
@@ -177,18 +212,686 @@
                 self.matrix = xyzAxisMatrix;
             };
 
-            this.calculateJointAngles = function (x,y,z) {
+            this.calculationTriangles = [];
+
+            this.Directions = { Left: 0, Right: 1, Up: 2, Down: 3 };
+
+            this.applyTransformation = function (vector, dhFromParameter, dhToParameters) {
+                var returnVector = [];
+
+
+
+                return returnVector;
+            };
+
+            this.calculateJointAnglesDH = function (x, y, z) {
+                //Common normal is a line perpendicular to both axes
+                //DH parameters are derived from the common normal between consecutive z axes
+                //All common normals are orthoganol
+                //New x axes points along the common normal
+
+                var shoulderJointD = 0; //offset between z axis and previous joints x axis
+                var shoulderJointTheta = 0; //angle needed to align x with new z axis (common normal)
+                var shoulderJointAlpha = 0; //angle of rotation along x axis to new z axis orientation
+                var shoulderJointR = shoulderBaseLink.Length; //length of the common normal (along x axis from z to z axes)
+
+                var elbowJointD = 0;
+                var elbowJointTheta = 0;
+                var elbowJointAlpha = 0;
+                var elbowJointR = 0;
+
+                var wristJointD = 0;
+                var wristJointTheta = 0;
+                var wristJointAlpha = 0;
+                var wristJointR = 0;
+
+
+            };
+
+            this.calculateJointAngles3 = function (x, y, z) {
+
+            };
+
+            this.debugInfo = ko.computed(function () {
+                var props = [];
+
+                for (var p in self.debugDetails()) {
+                    props.push({ key: p, value: self.debugDetails()[p]() });
+                }
+
+                return props;
+            });
+
+            this.addDebugWatch = function (label, value) {
+                var debugDetails = self.debugDetails();
+
+                if (!debugDetails[label]) {
+                    debugDetails[label] = ko.observable(value);
+                }
+                else {
+                    debugDetails[label](value);
+                }
+
+                self.debugDetails(debugDetails);
+            };
+
+            this.calculateJointAngles2 = function (x, y, z) {
+                self.calculationTriangles = [];
+                var jointAngles = [];
+
+                var direction = null;
+                
+                //calculate direction of movement
+                if (x < self.currentGripperX()) {
+                    direction = self.Directions.Left;
+                }
+                else if (x > self.currentGripperX()) {
+                    direction = self.Directions.Right;
+                }
+                else if (y > self.currentGripperY()) {
+                    direction = self.Directions.Up;
+                }
+                else if (y < self.currentGripperY()) {
+                    direction = self.Directions.Down;
+                }
+
+                //convert x into x from center of x/y assembly
+                var rebasedX = x - self.currentX();
+
+                //convert y into y from center of x/y assembly
+                var distanceFromBaseY = -(self.currentY() - y);
+
+                //convert z into z from center of x/y assembly
+                var rebasedZ = self.currentZ();
+
+                //#region Update Base
+                //if (direction == self.Directions.Right || direction == self.Directions.Left) {
+                //    var lengthOfLineFromStartToFinish = rebasedX ^ 2 + (Math.abs(distanceFromBaseY) ^ 2); //B (imaginary line between start and end point (Pythagorean theorem)
+                //    var angleToY = Math.atan2(y, rebasedX); //q1
+
+                //    var angleWithOffset = (angleOffsetRad + angleToY);
+                //    var angleToLink = angleWithOffset; //q2
+
+                //    maxXAtAngle = Math.sin(angleToLink) * Math.abs(self.armLength);
+                //    maxYAtAngle = Math.cos(angleToLink) * self.armLength;
+
+                //    if ((direction == self.Directions.Left || direction == self.Directions.Right) &&
+                //        ((Math.abs(rebasedX) > Math.abs(maxXAtAngle)) || Math.abs(distanceFromBaseY) > Math.abs(maxYAtAngle))) {
+
+                //        //Can't reach
+                //        //update x/y assembly position
+                //        var moveBaseDistance = self.moveBase(direction, Math.abs(x - self.currentGripperX()));
+
+                //        if (moveBaseDistance != 0) {
+                //            switch (direction) {
+                //                case self.Directions.Left:
+                //                    self.currentX(self.currentX() - moveBaseDistance);
+                //                    self.currentGripperX(x - moveBaseDistance);
+                //                    break;
+                //                case self.Directions.Right:
+                //                    self.currentX(self.currentX() + moveBaseDistance);
+                //                    self.currentGripperX(x + moveBaseDistance);
+                //                    break;
+                //            }
+                //        }
+                //    }
+                //}
+                //#end region "Update Base"
+
+                //
+                var shoulderOrigin = self.currentY() - (shoulderBaseLink.Length + (shoulderToElbowLink.Width / 2));
+                self.addDebugWatch('shoulderOrigin', shoulderOrigin);
+                //self.addDebugWatch('shoulderOrigin', shoulderOrigin);
+                var distanceFromShoulderOrigin = -(shoulderOrigin - y);
+                //self.addDebugWatch('distanceFromShoulderOrigin', distanceFromShoulderOrigin);
+                //Calculate shoulder angle for straight line
+                //var shoulderAngleForStraightLine = utilities.getRadians(90) - Math.abs(Math.atan2(distanceFromShoulderOrigin, rebasedX));
+                var shoulderAngleForStraightLine = utilities.getRadians(90) - Math.abs(Math.atan2(distanceFromShoulderOrigin, rebasedX));
+
+                //Pythagorean theorem
+                var lengthOfShoulderToWrist = Math.sqrt(rebasedX * rebasedX + Math.abs(distanceFromShoulderOrigin) * Math.abs(distanceFromShoulderOrigin));
+                //self.addDebugWatch('lengthOfShoulderToWrist', lengthOfShoulderToWrist);
+
+                //calculate length from top of upper arm to wrist joint (excluded space from bottom of base to origin of shoulder joint)
+                //var unknownSide = self.currentY() - (shoulderBaseLink.Length + (shoulderToElbowLink.Width / 2)) - y;
+
+                var wristIndex = 3;
+                //calculation triangle
+                var topOfTriangle = shoulderOrigin; // self.currentY() - (shoulderBaseLink.Length + (shoulderToElbowLink.Width / 2));
+                var objectToWrist = 0;
+                //var lengthOfShoulderToObject = 0;
+
+                for (var linkIndex = self.arm.Linkages.length - 1; linkIndex > wristIndex; linkIndex--) {
+                    var linkage = self.arm.Linkages[linkIndex];
+                    var increment = 0;
+
+                    if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
+                        increment = (linkage.Length + (linkage.Width / 2));
+                        lengthOfShoulderToWrist -= increment;
+                    }
+                    else if (linkage.StartJoint.Orientation == JointOrientation.Gripper) {
+                        increment = ((linkage.Length / 3) * 2)
+                        lengthOfShoulderToWrist -= increment;
+                    }
+                    else {
+                        increment = linkage.Length;
+                        lengthOfShoulderToWrist -= increment;
+                    }
+
+                    objectToWrist += increment;
+                }
+
+                var wristOffsetX = 0;
+                var wristOffsetY = 0;
+
+                //#########
+                /* ARM TRIANGLE DEFINITION
+                    Side A - Shoulder to Elbow
+                    Side B - Elbow to Wrist
+                    Side C - Shoulder to Wrist
+                */
+                //########
+
+                //shoulder to elbow
+                var sideA = shoulderToElbowLink.Length; // + (shoulderToElbowLink.Width/2);
+                //elbow to wrist
+                var sideB = elbowToWristLink.Length + (elbowToWristLink.Width / 2) + (wristRotateLink.Length) + (wristToGripperLink.Length / 2);
+
+                //Get the length of the side that extends from the wrist in line with the forearm based on the angle opposite of angle BC
+                var extensionToBottom = Math.cos(utilities.getRadians(wristBend.CurrentRotationDegree)) * objectToWrist;
+                //This is the bottom of the extension trianngle
+                var bottomOfExtension = Math.sin(utilities.getRadians(wristBend.CurrentRotationDegree)) * objectToWrist;
+
+                var angleToExtBottomD = utilities.getDegrees(Math.acos((objectToWrist * objectToWrist + bottomOfExtension * bottomOfExtension - extensionToBottom * extensionToBottom) / (2 * objectToWrist * bottomOfExtension)));
+                var angleToBottomD = Math.round((wristBend.CurrentRotationDegree + angleToExtBottomD));
+
+                wristOffsetX = (angleToBottomD == 90 ? 0 : Math.tan(wristBend.CurrentRotationDegree) * objectToWrist);
+                wristOffsetY = (angleToBottomD == 90 ? objectToWrist : Math.cos(wristBend.CurrentRotationDegree) * objectToWrist);
+
+                var wristBendX = rebasedX + wristOffsetX;
+                var wristBendY = y + wristOffsetY;
+                var distinceFromShoulderOriginAndWristBendY = Math.abs(shoulderOrigin) - Math.abs(wristBendY);
+
+                var angleToWristR = Math.atan2(distinceFromShoulderOriginAndWristBendY, wristBendX); // a
+                var angleToXY = Math.atan2(Math.abs(distanceFromShoulderOrigin), wristBendX);
+                var calcLenghOfShoulderToWrist = (angleToWristR == utilities.getRadians(90) ? parseFloat(lengthOfShoulderToWrist.toFixed(2)) : Math.sqrt(Math.abs(distinceFromShoulderOriginAndWristBendY) * Math.abs(distinceFromShoulderOriginAndWristBendY) + wristBendX * wristBendX)); //Math.sin(angleToWristR) * (distinceFromShoulderOriginAndWristBendY)); // parseFloat(lengthOfShoulderToWrist.toFixed(2));
+                lengthOfShoulderToWrist = calcLenghOfShoulderToWrist;
+
+                //#region Calculate trianble DEF (90 degree triangle from shoulder to object)
+                var gripperDistance = Math.abs(shoulderOrigin) - Math.abs(y);
+                self.addDebugWatch('gripperDistance', gripperDistance);
+                var angleShoulderToObjectAtan2 = Math.atan2(gripperDistance, rebasedX);
+                self.addDebugWatch('angleShoulderToObjectAtan2', utilities.getDegrees(angleShoulderToObjectAtan2));
+                var angleShoulderToObject = utilities.getRadians(90) - angleShoulderToObjectAtan2;
+                self.addDebugWatch('angleShoulderToObject', angleShoulderToObject);
+                self.addDebugWatch('Math.sin(angleShoulderToObject)', Math.sin(angleShoulderToObjectAtan2));
+
+                var sideD = self.currentX() - x; //Top of triangle
+                var sideE = distanceFromShoulderOrigin; //left side of triangle
+                var sideF = Math.sin(angleShoulderToObjectAtan2) * sideE; //hypotenuse
+
+                self.addDebugWatch('sideD', sideD);
+                self.addDebugWatch('sideE', sideE);
+                self.addDebugWatch('sideF', sideF);
+                //#endregion
+
+                //Now we know all sides of triangle from shoulder to wrist
+                var sideC = lengthOfShoulderToWrist; //side between shoulder to wrist
+
+                var shoulderAngleD = 0;
+
+                self.addDebugWatch('sideA', sideA);
+                self.addDebugWatch('sideB', sideB);
+                self.addDebugWatch('sideC', sideC);
+
+                //Wrist is at a location that is shorter than bicep and forearm are straight out so we need to bend elbow
+                if (sideA + sideB >= sideC) {
+                    //Calculate Shoulder angle
+                    var shoulderAngleR = Math.acos((sideA * sideA + sideC * sideC - sideB * sideB) / (2 * sideA * sideC)); // c
+                    self.addDebugWatch('Angle AC', utilities.getDegrees(shoulderAngleR));
+                    //self.addDebugWatch('angleToWristR', angleToWristR);
+                    var shoulderAngleToWristLeftOverR = utilities.getRadians(90) - angleToWristR; // b
+                    //self.addDebugWatch('shoulderAngleToWristLeftOverR', shoulderAngleToWristLeftOverR);
+                    var shoulderAngleWithOffsetR = (angleToWristR + shoulderAngleR > utilities.getRadians(90) ? shoulderAngleR - shoulderAngleToWristLeftOverR : utilities.getRadians(90) - (angleToWristR + shoulderAngleR)); //Add angle offset from x,y atan2
+                    shoulderAngleD = utilities.getDegrees(shoulderAngleWithOffsetR); //d
+                    //self.addDebugWatch('shoulderAngleD', shoulderAngleD);
+
+                    var shoulderRotationD = 0; //Math.abs(shoulderUpDownJoint.CurrentRotationDegree) - Math.abs(shoulderAngleD); //-(Math.max(Math.abs(shoulderUpDownJoint.CurrentRotationDegree), Math.abs(shoulderAngleD)) - Math.min(Math.abs(shoulderUpDownJoint.CurrentRotationDegree), Math.abs(shoulderAngleD)));
+
+                    if (angleToWristR + shoulderAngleR >= utilities.getRadians(90)) {
+                        shoulderRotationD = Math.abs(shoulderUpDownJoint.CurrentRotationDegree) - Math.abs(shoulderAngleD);
+                    }
+                    else {
+                        if (direction == self.Directions.Right) {
+                            shoulderRotationD = Math.abs(shoulderUpDownJoint.CurrentRotationDegree - shoulderAngleD);
+                        }
+                        else {
+                            shoulderRotationD = -Math.abs(shoulderUpDownJoint.CurrentRotationDegree - shoulderAngleD);
+                        }
+                    }
+
+                    //var angleSign = shoulderUpDownJoint.CurrentRotationDegree > shoulderAngleD ? -1 : 1;
+
+                    //try to rotate the joint the specific amount of degree and capture what the joint actually rotated and use that
+                    var priorShoulderRotationD = shoulderUpDownJoint.CurrentRotationDegree;
+
+                    var shoulderRotatedD = self.rotateJoint(shoulderUpDownJoint, shoulderRotationD);
+                    shoulderAngleD = shoulderRotatedD;
+                    if (priorShoulderRotationD != shoulderRotatedD) {
+                        jointAngles[1] = shoulderRotatedD;
+                    }
+                    else {
+                        var a = 'test';
+                    }
+
+                    self.addDebugWatch('Shoulder Angle', shoulderUpDownJoint.CurrentRotationDegree);
+
+                    //Calculate the Elbow angle
+                    var elbowAngleR = Math.acos((sideA * sideA + sideB * sideB - sideC * sideC) / (2 * sideA * sideB));
+                    self.addDebugWatch('Angle AB', utilities.getDegrees(elbowAngleR));
+
+                    //self.addDebugWatch('elbowAngleD1', utilities.getDegrees(elbowAngleR));
+                    var elbowAngleWithOffsetR = (utilities.getRadians(180) - Math.abs(elbowAngleR)); // + utilities.getRadians(90);
+                    var elbowAngleD = utilities.getDegrees(elbowAngleWithOffsetR);
+                    //self.addDebugWatch('elbowAngleD2', elbowAngleD);
+
+                    var signY = 1;
+                    var signX = 1;
+
+                    var elbowPriorRotationD = elbowJoint.CurrentRotationDegree;
+
+                    if (rebasedX == 0) {
+
+                        if (x < self.currentGripperX()) {
+                            signX = -1;
+                        }
+                        else if (x > self.currentGripperX()) {
+                            signX = 1;
+                        }
+                        else {
+                            signX = (elbowJoint.CurrentRotationDegree < 0 ? -1 : 1);
+                        }
+
+                        if (y < self.currentGripperY()) {
+                            signY = -1;
+                        }
+                        else if (y > self.currentGripperY()) {
+                            signY = 1;
+                        }
+                        else {
+                            signY = (elbowJoint.CurrentRotationDegree < 0 ? -1 : 1);
+                        }
+                    }
+                    else {
+                        //Determine if I need to grow or shrink the angle
+                        if (Math.abs(elbowJoint.CurrentRotationDegree) > Math.abs(elbowAngleD)) {
+                            signY = -1;
+                        }
+                        else {
+                            signY = 1;
+                        }
+
+                        //Determine the sign to grow or shrink
+                        signY *= (signY == -1 && elbowJoint.CurrentRotationDegree < 0 ? -1 : 1);
+                    }
+
+                    var elbowRotationD = signY * Math.abs(Math.max(Math.abs(elbowJoint.CurrentRotationDegree), Math.abs(elbowAngleD)) - Math.min(Math.abs(elbowJoint.CurrentRotationDegree), Math.abs(elbowAngleD)));
+                    //rotationDegree = signY * Math.abs(elbowJoint.CurrentRotationDegree) - Math.abs(elbowAngleD);
+
+                    var elbowRotatedD = self.rotateJoint(elbowJoint, elbowRotationD);
+
+                    if (elbowRotatedD != elbowPriorRotationD) {
+                        jointAngles[2] = elbowRotatedD; //elbowJoint.CurrentRotationDegree;
+                    }
+                    else {
+                        var b = 'test';
+                    }
+
+                    self.addDebugWatch('Elbow Angle', elbowJoint.CurrentRotationDegree);
+
+                    //#region Calculate the Wrist angle
+                    var wristAngleR = 0;
+
+                    //calculate shoulder angle based on 90 degree angle
+                    //self.addDebugWatch('shoulderUpDownJoint.CurrentRotationDegree', shoulderUpDownJoint.CurrentRotationDegree);
+
+                    var shoulderAngleNinetyR = utilities.getRadians(shoulderUpDownJoint.CurrentRotationDegree);
+
+                    //###### If the x,y of the object is to the right of the x,y of the elbow joint then tilt wrist left (Negative), otherwise tilt right (positive)
+                    var elbowX = Math.sin(shoulderAngleNinetyR) * shoulderToElbowLink.Length;
+
+                    var elbowXWithOffset = self.currentX() + elbowX;
+
+                    var wristDifferenceD = 0;
+
+                    var angleBCR = utilities.getRadians(180) - (Math.abs(shoulderAngleR) + Math.abs(elbowAngleR));
+                    self.addDebugWatch('Angle BC', utilities.getDegrees(angleBCR));
+
+                    if (x > elbowXWithOffset) {
+                        self.addDebugWatch('positive wrist', 'false');
+                        //Get the inside angle
+                        wristAngleR = angleBCR;
+
+                        wristAngleR = -(wristAngleR);
+
+                        var wristAngleWithOffsetR = wristAngleR - shoulderAngleToWristLeftOverR;
+                        var wristAngleD = utilities.getDegrees(wristAngleWithOffsetR);
+
+                        //if (wristBend.CurrentRotationDegree <= 0 && wristAngleD <= 0) {
+                            wristDifferenceD = wristAngleD - wristBend.CurrentRotationDegree;
+                        //}
+                        //else {
+                        //    wristDifferenceD = wristBend.CurrentRotationDegree - wristAngleD;
+                        //}
+                    }
+                    else {
+                        ////We want the adjacent angle if the gripper is past the elbow
+                        //if (x < elbowXWithOffset) {
+                        //    wristAngleR = utilities.getRadians(90) - wristAngleR;
+                        //}
+
+                        self.addDebugWatch('positive wrist', 'true');
+                        wristAngleR = Math.abs(wristAngleR);
+                    }
+
+                    var wristRotationD = wristDifferenceD;
+
+                    var wristPriorRotationD = wristBend.CurrentRotationDegree;
+
+                    var wristRotatedD = self.rotateJoint(wristBend, wristRotationD);
+
+                    if (wristPriorRotationD != wristRotatedD) {
+                        jointAngles[4] = wristRotatedD;
+                    }
+                    else {
+                        var c = 'test';
+                    }
+                    //#end region
+
+                    self.addDebugWatch('Wrist Angle', wristBend.CurrentRotationDegree);
+                }
+
+                //var rotationDegree = shoulderAngleD || 0;
+                var triangleShoulderRotationR = utilities.getRadians(shoulderUpDownJoint.CurrentRotationDegree); //Math.abs(utilities.getRadians(shoulderAngleD)); // Math.abs(utilities.getRadians(90) - Math.abs(utilities.getRadians(rotationDegree)));
+
+                var leftSideOfTriangleX = (utilities.getDegrees(triangleShoulderRotationR) != 0 ? Math.sin(triangleShoulderRotationR) * sideA : rebasedX);
+                var leftSideOfTriangleY = (utilities.getDegrees(triangleShoulderRotationR) != 0 ? Math.cos(triangleShoulderRotationR) * sideA : sideA);
+                var bottomTriangleX = x; // (rebasedX == 0 ? x : self.currentX() + (signX * (Math.sin(rotationR) * lengthOfShoulderToWrist)));
+                var bottomTriangleY = wristBendY; // topOfTriangle - (rebasedX == 0 ? lengthOfShoulderToWrist : Math.cos(rotationR) * lengthOfShoulderToWrist);
+
+                //self.calculationTriangles.push({
+                //    Points: [{ x: bottomTriangleX, y: bottomTriangleY, z: self.currentZ }, //base of wrist
+                //    { x: bottomTriangleX, y: bottomTriangleY - objectToWrist, z: self.currentZ }, //side from base to bottom
+                //    { x: self.currentX() + bottomOfExtension, y: bottomTriangleY - objectToWrist, z: self.currentZ }] //location across from hypotenuse
+                //});
+
+                self.calculationTriangles.push({
+                    Color: '#0000FF',
+                    Points: [{ x: self.currentX(), y: topOfTriangle, z: self.currentZ() }, //base of arm
+                        { x: bottomTriangleX, y: bottomTriangleY, z: self.currentZ() }, //side from base to bottom
+                        { x: self.currentX() + leftSideOfTriangleX, y: topOfTriangle - leftSideOfTriangleY, z: self.currentZ() }] //location across from hypotenuse
+                });
+
+                var bottomElbowY = topOfTriangle - (Math.cos(triangleShoulderRotationR) * sideA);
+
+                //elbow height
+                //self.calculationTriangles.push({
+                //    Points: [{ x: self.currentX(), y: topOfTriangle, z: self.currentZ() }, //base of arm
+                //        { x: self.currentX(), y: bottomElbowY, z: self.currentZ() }, //side from base to bottom
+                //        { x: self.currentX() + leftSideOfTriangleX, y: topOfTriangle - leftSideOfTriangleY, z: self.currentZ() }] //elbow location
+                //});
+
+
+                self.calculationTriangles.push({
+                    Color: '#FF0000',
+                    Points: [{ x: self.currentX(), y: topOfTriangle, z: self.currentZ() }, //base of arm
+                        { x: self.currentX(), y: bottomElbowY, z: self.currentZ() }, //side from base to bottom
+                        { x: self.currentX() + elbowX, y: topOfTriangle - leftSideOfTriangleY, z: self.currentZ() }] //elbow location
+                });
+
+                self.calculationTriangles.push({
+                    Color: '#00FF00',
+                    Points: [{ x: self.currentX(), y: shoulderOrigin, z: self.currentZ() }, //base of arm
+                        { x: self.currentX() - sideD, y: shoulderOrigin, z: self.currentZ() }, //90 deg angle
+                        { x: self.currentX() - sideD, y: shoulderOrigin + sideF, z: self.currentZ() }]
+                });
+
+                if (jointAngles.length == 5) {
+                    self.currentGripperX(x);
+                    self.currentGripperY(y);
+                    self.currentGripperZ(z);
+                }
+                else {
+                    self.moveBase(direction, Math.abs(self.currentGripperX() - x))
+                }
+
+                return jointAngles;
+            };
+
+            this.calculateJointAngles = function (x, y, z) {
                 //calculate the Joint angles needed to go to move to a specific location
+                self.calculationTriangles = [];
+
+                var direction = null;
+
+                if (x < self.currentGripperX()) {
+                    direction = self.Directions.Left;
+                }
+                else if (x > self.currentGripperX()) {
+                    direction = self.Directions.Right;
+                }
+                else if (y > self.currentGripperY()) {
+                    direction = self.Directions.Up;
+                }
+                else if (y < self.currentGripperY()) {
+                    direction = self.Directions.Down;
+                }
+
+                //var maximumReachX = 0;
+                //var maximumReachY = 0;
+                //var maximumReachZ = 0;
+
+                //var maximumArmReach = {};
 
                 var jointAngles = [];
-                /*
-                var lengthOfLineFromStartToFinish = x ^ 2 + y ^ 2; //B (imaginary line between start and end point (Pythagorean theorem)
-                var angleToY = Math.atan2(y, x); //q1 (Angle between X axis and B)
-                
-                var angleToLink = Math.acos((linkageLengths + lengthOfLineFromStartToFinish) / 2 * linkageLengths); //q2
+                var angleOffsetRad = -utilities.getRadians(90);
 
-                jointAngles.push(0); //rotation of shoulder
-                jointAngles.push(angleToY + angleToLink); //shoulder bend
+                var rebasedX = x - self.currentX(); //convert x into x from center of x/y assembly
+                var distanceFromBaseY = -(self.currentY() - y); //convert y into y from center of x/y assembly
+                var rebasedZ = self.currentZ(); //convert z into z from center of x/y assembly
+
+                //var angleToLink = 0;
+                var maxXAtAngle = 0;
+                var maxYAtAngle = 0;
+
+
+                if (direction == self.Directions.Right || direction == self.Directions.Left) {
+                    var lengthOfLineFromStartToFinish = rebasedX ^ 2 + (Math.abs(distanceFromBaseY) ^ 2); //B (imaginary line between start and end point (Pythagorean theorem)
+                    var angleToY = Math.atan2(y, rebasedX); //q1
+
+                    var angleWithOffset = (angleOffsetRad + angleToY);
+                    var angleToLink = angleWithOffset; //q2
+
+                    maxXAtAngle = Math.sin(angleToLink) * Math.abs(self.armLength);
+                    maxYAtAngle = Math.cos(angleToLink) * self.armLength;
+
+                    if ((direction == self.Directions.Left || direction == self.Directions.Right) &&
+                        ((Math.abs(rebasedX) > Math.abs(maxXAtAngle)) || Math.abs(distanceFromBaseY) > Math.abs(maxYAtAngle))) {
+
+                        //Can't reach
+                        //update x/y assembly position
+                        var moveBaseDistance = self.moveBase(direction, Math.abs(x - self.currentGripperX()));
+
+                        if (moveBaseDistance != 0) {
+                            switch (direction) {
+                                case self.Directions.Left:
+                                    self.currentX(self.currentX() - moveBaseDistance);
+                                    self.currentGripperX(x - moveBaseDistance);
+                                    break;
+                                case self.Directions.Right:
+                                    self.currentX(self.currentX() + moveBaseDistance);
+                                    self.currentGripperX(x + moveBaseDistance);
+                                    break;
+                            }
+                        }
+                    }
+                }
+                else if (direction == self.Directions.Up || direction == self.Directions.Down) {
+                    if (rebasedX == 0) {
+                        //calculate length from top of upper arm to wrist joint (excluded space from bottom of base to origin of shoulder joint)
+                        var unknownSide = self.currentY() - (shoulderBaseLink.Length + (shoulderToElbowLink.Width / 2)) - y;
+                        var wristIndex = 2;
+                        //calculation triangle
+                        var topOfTriangle = self.currentY() - (shoulderBaseLink.Length + (shoulderToElbowLink.Width / 2));
+
+                        for (var linkIndex = self.arm.Linkages.length - 1; linkIndex > wristIndex; linkIndex--) {
+                            var linkage = self.arm.Linkages[linkIndex];
+                            if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
+                                unknownSide -= (linkage.Length + (linkage.Width / 2));
+                            }
+                            else if (linkage.StartJoint.Orientation == JointOrientation.Gripper) {
+                                unknownSide -= ((linkage.Length / 3) * 2);
+                            }
+                            else {
+                                unknownSide -= linkage.Length;
+                            }
+                        }
+
+                        //calculation triangle
+                        var bottomOfTriangle = topOfTriangle - unknownSide;
+
+                        //Now we know all sides of triangle from shoulder to wrist
+                        var sideA = shoulderToElbowLink.Length; // + (shoulderToElbowLink.Width/2); //shoulder to elbow
+                        var sideB = elbowToWristLink.Length + (elbowToWristLink.Width / 2) + (wristRotateLink.Length) + (wristToGripperLink.Length / 2); //elbow to wrist
+                        var sideC = unknownSide; //side between shoulder to wrist
+
+                        //We have a triangle if this is the case
+                        if (sideA + sideB > sideC) {
+
+                            //Calculate the shoulder angle
+                            var shoulderAngle = Math.acos((sideA * sideA + sideC * sideC - sideB * sideB) / (2 * sideA * sideC));
+                            var angleWithOffset = shoulderAngle; // + angleOffsetRad;
+                            var shoulderAngleDegree = utilities.getDegrees(angleWithOffset);
+                            var rotationDegree = -(Math.max(Math.abs(shoulderUpDownJoint.CurrentRotationDegree), Math.abs(shoulderAngleDegree)) - Math.min(Math.abs(shoulderUpDownJoint.CurrentRotationDegree), Math.abs(shoulderAngleDegree)));
+
+                            if (self.rotateJoint(shoulderUpDownJoint, rotationDegree)) {
+                                jointAngles[1] = shoulderUpDownJoint.CurrentRotationDegree;
+                            }
+
+                            //Calculate the Elbow angle
+                            var elbowAngle = Math.acos((sideA * sideA + sideB * sideB - sideC * sideC) / (2 * sideA * sideB));
+                            angleWithOffset = utilities.getRadians(180) - elbowAngle; // + utilities.getRadians(90);
+                            var elbowAngleDegree = utilities.getDegrees(angleWithOffset);
+                            rotationDegree = Math.max(Math.abs(elbowJoint.CurrentRotationDegree), Math.abs(elbowAngleDegree)) - Math.min(Math.abs(elbowJoint.CurrentRotationDegree), Math.abs(elbowAngleDegree));
+                            if (self.rotateJoint(elbowJoint, rotationDegree)) {
+                                jointAngles[2] = elbowJoint.CurrentRotationDegree;
+                            }
+
+                            //Calculate the Wrist angle
+                            var wristAngle = utilities.getRadians(180) - (Math.abs(shoulderAngle) + Math.abs(elbowAngle));
+                            angleWithOffset = wristAngle; // + utilities.getRadians(90); // + angleOffsetRad;
+                            var wristAngleDegree = utilities.getDegrees(angleWithOffset);
+                            rotationDegree = -(Math.max(Math.abs(wristBend.CurrentRotationDegree), Math.abs(wristAngleDegree)) - Math.min(Math.abs(wristBend.CurrentRotationDegree), Math.abs(wristAngleDegree)));
+
+                            if (self.rotateJoint(wristBend, rotationDegree)) {
+                                jointAngles[4] = wristBend.CurrentRotationDegree;
+                            }
+                        }
+                        else {
+                            //We have a straight line
+                            var angleToY = utilities.getDegrees(Math.atan2(y, rebasedX) + angleOffsetRad); //q1 (Angle between X axis and B)
+                            var rotationDegree = shoulderUpDownJoint.CurrentRotationDegree - angleToY;
+                            if (self.rotateJoint(shoulderUpDownJoint, rotationDegree)) {
+                                jointAngles[1] = rotationDegree;
+                            }
+                        }
+
+                        var rotationDegree = jointAngles[1];
+
+                        var leftSideOfTriangleX = Math.sin(utilities.getRadians(rotationDegree)) * shoulderToElbowLink.Length;
+                        var leftSideOfTriangleY = Math.cos(utilities.getRadians(rotationDegree)) * shoulderToElbowLink.Length;
+
+                        self.calculationTriangles.push({
+                            Points: [{ x: x, y: topOfTriangle, z: self.currentZ() }, //base of arm
+                                { x: x, y: bottomOfTriangle, z: self.currentZ() }, //side along y axis
+                                { x: x - Math.abs(leftSideOfTriangleX), y: topOfTriangle - leftSideOfTriangleY, z: self.currentZ() }] //side from x axis to y point
+                        });
+
+                        self.currentGripperX(x);
+                        self.currentGripperY(y);
+                        self.currentGripperZ(z);
+
+                    }
+                }
+                else {
+                    var rotationDegree = jointAngles[1];
+
+                    var leftSideOfTriangleX = Math.sin(utilities.getRadians(rotationDegree)) * shoulderToElbowLink.Length;
+                    var leftSideOfTriangleY = Math.cos(utilities.getRadians(rotationDegree)) * shoulderToElbowLink.Length;
+
+
+                    self.calculationTriangles.push({
+                        Points: [{ x: x, y: topOfTriangle, z: self.currentZ() }, //base of arm
+                            { x: x, y: bottomOfTriangle, z: self.currentZ() }, //side along y axis
+                            { x: x - Math.abs(leftSideOfTriangleX), y: topOfTriangle - leftSideOfTriangleY, z: self.currentZ() }] //side from x axis to y point
+                    });
+                }
+
+                /*
+                if ((direction == self.Directions.Left || direction == self.Directions.Right) &&
+                    ((Math.abs(rebasedX) > Math.abs(maxXAtAngle)) || Math.abs(distanceFromBaseY) > Math.abs(maxYAtAngle))) {
+                    //Can't reach
+                    //update x/y assembly position
+                    var moveBaseDistance = self.moveBase(direction, Math.abs(x - self.currentGripperX));
+
+                    if (moveBaseDistance != 0) {
+                        switch (direction) {
+                            case self.Directions.Left:
+                                self.currentX -= moveBaseDistance;
+                                self.currentGripperX = x - moveBaseDistance;
+                                break;
+                            case self.Directions.Right:
+                                self.currentX += moveBaseDistance;
+                                self.currentGripperX = x + moveBaseDistance;
+                                break;
+                        }
+
+                        self.currentGripperY = y;
+                        self.currentGripperZ = z;
+                    }
+                }
+                else {
+                    //update the gripper to the new location
+                    self.currentGripperX = x;
+                    self.currentGripperY = y;
+                    self.currentGripperZ = z;
+
+                    if (self.rotateJoint(shoulderUpDownJoint, angleToLink)) {
+                        jointAngles[1] = utilities.getDegrees(angleToLink);
+                    }
+                }
+
+                */
+
+                //Triangle for X-axis to imaginary line
+                //self.calculationTriangles.push({
+                //    Points: [{ x: self.currentX, y: self.currentY(), z: self.currentZ }, //base of arm
+                //        { x: x, y: self.currentY(), z: self.currentZ }, //side along x axis
+                //        { x: x, y: y, z: self.currentZ }] //side from x axis to y point
+                //});
+
+                //for (var linkIndex = arm.Linkages.length; linkIndex >= 0; linkIndex--) {
+                //    var link = arm.Linkages[linkIndex];
+
+                //    if (link.StartJoint.Orientation == JointOrientation.Rotate) {
+
+                //    }
+                //}
+
+                jointAngles[0] = 0; //rotation of shoulder
+                //jointAngles.push(angleToY + angleToLink); //shoulder bend
+
+                /*
 
                 var totalAngle = 0;
                 var totalLinkLength = 0;
@@ -216,43 +919,75 @@
                     totalLinkLength += linkage.Length;
                     totalLinkProduct *= linkage.Length;
                 }
-               
+
                 jointAngles.push(endAngle - totalAngle);
                 */
 
                 return jointAngles;
             };
 
+            self.armLength = 0;
+
             this.initializeGripperXY = function () {
                 var x = self.minimumX;
-                var y = self.minimumY;
+                var y = self.maximumY;
                 var z = self.minimumZ;
 
-                for (var linkIndex = 0; linkIndex < self.arm.Linkages.length; linkIndex++) {
+                var linkQty = self.arm.Linkages.length;
+
+                for (var linkIndex = 0; linkIndex < linkQty; linkIndex++) {
                     var linkage = self.arm.Linkages[linkIndex];
                     var linkX = 0;
                     var linkY = 0;
 
                     if (linkage.StartJoint.Orientation == JointOrientation.Bend) {
-                        if (linkage.StartJoint.CurrentRotationDegree != 0) {
-                            linkX = Math.cos(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
-                            linkY = -Math.sin(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                        if (linkIndex > 0 && self.arm.Linkages[linkIndex - 1].StartJoint.Orientation == JointOrientation.Bend) {
+                            if (linkage.StartJoint.CurrentRotationDegree != 0) {
+                                linkX = Math.cos(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                                linkY = -Math.sin(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                            }
+                            else {
+                                linkX = 0;
+                                linkY = -(linkage.Length + (linkage.Width) - (linkage.Width)); //account for the rounded corners & backup for overlap
+                            }
                         }
                         else {
-                            linkX = 0;
-                            linkY = -linkage.Length;
+                            if (linkage.StartJoint.CurrentRotationDegree != 0) {
+                                linkX = Math.cos(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                                linkY = -Math.sin(utilities.getRadians(linkage.StartJoint.CurrentRotationDegree)) * linkage.Length;
+                            }
+                            else {
+                                linkX = 0;
+                                linkY = -(linkage.Length + (linkage.Width)); //account for the rounded corners
+                            }
                         }
                     }
-                    else {
-                        linkY = -linkage.Length;
+                    else if (linkage.StartJoint.Orientation == JointOrientation.Gripper) {
+                        linkY = -((linkage.Length / 3) * 2); //move y 2/3's down the gripper
+                    }
+                    else if (linkage.StartJoint.Orientation == JointOrientation.Rotate) {
+                        linkY = -linkage.Length; //Use the full length
                     }
 
                     x += linkX;
                     y += linkY;
+                    self.armLength += linkY;
                 }
-                
-                self.currentGripperX = x;
-                self.currentGripperY = y;
+
+                self.armLength = Math.abs(self.armLength);
+
+                self.currentGripperX(x);
+                self.currentGripperY(y);
+                self.currentGripperZ(z);
+
+                self.minimumGripperX = x - Math.abs(y);
+                self.maximumGripperX = self.maximumX + self.armLength;
+
+                self.minimumGripperZ = self.minimumZ - self.armLength;
+                self.maximumGripperZ = self.maximumGripperZ + self.armLength;
+
+                self.minimumGripperY = y;
+                self.maximumGripperY = Math.abs(y) + self.armLength;
             };
 
             this.init = function () {
@@ -261,22 +996,43 @@
                 self.initializeGripperXY();
 
                 armHub.server.init({
-                    currentX: self.currentX
-                                    , currentZ: self.currentZ
+                    currentX: self.currentX()
+                                    , currentZ: self.currentZ()
                                     , ArmDefinition: arm
-                                    //, Obstacles: result.result
+                    //, Obstacles: result.result
                                     , MoveableObjects: self.moveableObjects
                 }).fail(function (error) {
                     alert(error.message);
                 }).done(function () {
-                    armHub.server.plotMovementMatrix(self.matrix);
-                    armHub.server.plotCurrentGripperLocation(self.currentGripperX, self.currentGripperY, self.currentGripperZ);
+                    var y = self.currentGripperY();
+                    /*
+                    y -= arm.Linkages[0].Length;
+                    y -= (arm.Linkages[1].Length + (arm.Linkages[1].Width/2));
+                    y -= (arm.Linkages[2].Length + (arm.Linkages[2].Width / 2));
+                    y -= arm.Linkages[3].Length;
+                    y -= (arm.Linkages[4].Length + (arm.Linkages[4].Width / 2));
+                    y -= ((arm.Linkages[5].Length/3)*2);
+                    */
+
+                    armHub.server.plotCurrentGripperLocation(self.currentGripperX(), y, self.currentGripperZ()).fail(function (error) {
+                        alert('plotCurrentGripperLocation: ' + error.message);
+                    }).done(function () {
+                        var movements = self.calculateMovements(self.currentGripperX(), self.currentGripperY(), self.currentGripperZ());
+
+                        if (movements) {
+                            self.movements(movements);
+                            self.sendCommand('moveObject', { movements: movements });
+                            self.updateGripperLocation();
+                            self.displayCalculationTriangles();
+                        }
+                    });
                 });
+
 
             };
 
             this.calculateMovements = function (x, y, z) {
-                var jointAngles = self.calculateJointAngles(x, y, z);
+                var jointAngles = self.calculateJointAngles2(x, y, z); //self.calculateJointAngles(x, y, z);
 
                 var movements = [];
 
@@ -288,20 +1044,81 @@
             };
 
             this.updateGripperLocation = function () {
-                armHub.server.moveCurrentGripperLocation(self.currentGripperX, self.currentGripperY, self.currentGripperZ);
+                armHub.server.moveCurrentGripperLocation(self.currentGripperX(), self.currentGripperY(), self.currentGripperZ());
+            };
+
+            this.displayCalculationTriangles = function () {
+                armHub.server.drawTriangleDetails(self.calculationTriangles);
+            };
+
+            this.moveBase = function (direction, distance) {
+                var movedDistance = 0;
+
+                if (direction == self.Directions.Up) {
+                    if (self.currentZ() - distance >= self.maximumZ) {
+                        movedDistance = distance;
+                        self.currentZ(self.currentZ() - distance);
+                        //move gripper location
+                        self.currentGripperZ(self.currentGripperZ() - movedDistance);
+                    }
+                    else if (self.currentZ() != self.maximumZ) {
+                        movedDistance = self.currentZ() - self.maximumZ;
+                        self.currentZ(self.maximumZ);
+                        self.currentGripperZ(self.currentGripperZ() - movedDistance);
+                    }
+                }
+                else if (direction == self.Directions.Down) {
+                    if (self.currentZ() + distance <= self.minimumZ) {
+                        movedDistance = distance;
+                        self.currentZ(self.currentZ() + distance);
+                        //move gripper location
+                        self.currentGripperZ(self.currentGripperZ() + movedDistance);
+                    }
+                    else if (self.currentZ() != self.minimumZ) {
+                        movedDistance = self.minimumZ - self.currentZ();
+                        self.currentZ(self.minimumZ);
+                        self.currentGripperZ(self.currentGripperZ() + movedDistance);
+                    }
+                }
+                else if (direction == self.Directions.Left) {
+                    if (self.currentX() - distance >= self.minimumX) {
+                        movedDistance = distance;
+                        self.currentX(self.currentX() - distance);
+                        //move the gripperX
+                        self.currentGripperX(self.currentGripperX() - movedDistance);
+
+                    }
+                    else if (self.currentX() != self.minimumX) {
+                        movedDistance = self.currentX() - self.minimumX;
+                        self.currentX(this.minimumX);
+                        self.currentGripperX(self.currentGripperX() - movedDistance);
+                    }
+                }
+                else if (direction == self.Directions.Right) {
+                    if (self.currentX() + distance <= self.maximumX) {
+                        movedDistance = distance;
+                        self.currentX(self.currentX() + distance);
+                        //move the gripperX
+                        self.currentGripperX(self.currentGripperX() + movedDistance);
+
+                    }
+                    else if (self.currentX() != self.maximumX) {
+                        movedDistance = self.maximumX - self.currentX();
+                        self.currentX(self.maximumX);
+                        //move the gripper
+                        self.currentGripperX(self.currentGripperX() + movedDistance);
+                    }
+                }
+
+                return movedDistance;
             };
 
             this.moveUp = function () {
                 switch (self.CurrentMode()) {
                     case ArmMode.MoveBase:
-                        if (self.currentZ - self.increment >= self.maximumZ) {
-                            self.currentZ -= self.increment;
-                            self.sendCommand('moveUp', { mode: self.CurrentMode(), distance: self.increment });
-                        }
-                        else if (self.currentZ != self.minimumZ) {
-                            var distance = self.currentZ - self.minimumZ;
-                            self.currentZ = self.minimumZ;
-                            self.sendCommand('moveUp', { mode: self.CurrentMode() , distance: distance });
+                        var distance = self.moveBase(self.Directions.Up, self.increment);
+                        if (distance != 0) {
+                            self.sendCommand('moveUp', { mode: self.CurrentMode(), distance: distance });
                         }
                         break;
                     case ArmMode.BendShoulder:
@@ -325,12 +1142,13 @@
                         }
                         break;
                     case ArmMode.MoveObject:
-                        if (self.currentGripperY + self.increment >= self.maximumY) {
-                            self.currentGripperY += self.increment;
-                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+                        var movements = self.calculateMovements(self.currentGripperX(), self.currentGripperY() + self.increment, self.currentGripperZ());
 
+                        if (movements) {
+                            self.movements(movements);
                             self.sendCommand('moveObject', { movements: movements });
                             self.updateGripperLocation();
+                            self.displayCalculationTriangles();
                         }
                         break;
                 }
@@ -339,13 +1157,8 @@
             this.moveDown = function () {
                 switch (self.CurrentMode()) {
                     case ArmMode.MoveBase:
-                        if (self.currentZ + self.increment <= self.minimumZ) {
-                            self.currentZ += self.increment;
-                            self.sendCommand('moveDown', { mode: self.CurrentMode(), distance: self.increment });
-                        }
-                        else if (self.currentZ != self.minimumZ) {
-                            var distance = self.currentZ + self.minimumZ;
-                            self.currentZ = self.minimumZ;
+                        var distance = self.moveBase(self.Directions.Down, self.increment);
+                        if (distance != 0) {
                             self.sendCommand('moveDown', { mode: self.CurrentMode(), distance: distance });
                         }
                         break;
@@ -370,30 +1183,25 @@
                         }
                         break;
                     case ArmMode.MoveObject:
-                        if (self.currentY - self.increment <= self.minimumY) {
-                            self.currentGripperY -= self.increment;
-                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+                        var movements = self.calculateMovements(self.currentGripperX(), self.currentGripperY() - self.increment, self.currentGripperZ());
 
+                        if (movements) {
+                            self.movements(movements);
                             self.sendCommand('moveObject', { movements: movements });
                             self.updateGripperLocation();
-
+                            self.displayCalculationTriangles();
                         }
                         break;
 
                 }
-            
+
             };
 
             this.moveLeft = function () {
                 switch (self.CurrentMode()) {
                     case ArmMode.MoveBase:
-                        if (self.currentX - this.increment >= self.minimumX) {
-                            self.currentX -= this.increment;
-                            self.sendCommand('moveLeft', { mode: self.CurrentMode(), distance: self.increment });
-                        }
-                        else if (self.currentX != self.minimumX) {
-                            var distance = self.currentX - self.minimumX;
-                            self.currentX = this.minimumX;
+                        var distance = self.moveBase(self.Directions.Left, self.increment);
+                        if (distance != 0) {
                             self.sendCommand('moveLeft', { mode: self.CurrentMode(), distance: distance });
                         }
                         break;
@@ -408,12 +1216,14 @@
                         }
                         break;
                     case ArmMode.MoveObject:
-                        if (self.currentGripperX - self.increment >= self.minimumX) {
-                            self.currentGripperX -= self.increment;
-                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+                        var movements = self.calculateMovements(self.currentGripperX() - self.increment, self.currentGripperY(), self.currentGripperZ());
 
+                        if (movements) {
+                            self.movements(movements);
                             self.sendCommand('moveObject', { movements: movements });
                             self.updateGripperLocation();
+                            self.displayCalculationTriangles();
+                            self.updateXZLocation(self.currentX(), self.currentZ());
                         }
                         break;
                 }
@@ -422,13 +1232,8 @@
             this.moveRight = function () {
                 switch (self.CurrentMode()) {
                     case ArmMode.MoveBase:
-                        if (self.currentX + this.increment <= self.maximumX) {
-                            self.currentX += this.increment;
-                            self.sendCommand('moveRight', { mode: self.CurrentMode(), distance: self.increment });
-                        }
-                        else if (self.currentX != self.maximumX) {
-                            var distance = self.maximumX - self.currentX;
-                            self.currentX = self.maximumX;
+                        var distance = self.moveBase(self.Directions.Right, self.increment);
+                        if (distance > 0) {
                             self.sendCommand('moveRight', { mode: self.CurrentMode(), distance: distance });
                         }
                         break;
@@ -443,35 +1248,41 @@
                         }
                         break;
                     case ArmMode.MoveObject:
-                        if (self.currentGripperX + self.increment <= self.maximumX) {
-                            self.currentGripperX += self.increment;
-                            var movements = self.calculateMovements(self.currentGripperX, self.currentGripperY, 0);
+                        var movements = self.calculateMovements(self.currentGripperX() + self.increment, self.currentGripperY(), self.currentGripperZ());
 
+                        if (movements) {
+                            self.movements(movements);
                             self.sendCommand('moveObject', { movements: movements });
                             self.updateGripperLocation();
+                            self.displayCalculationTriangles();
+                            self.updateXZLocation(self.currentX(), self.currentZ());
                         }
                         break;
 
                 }
             };
-     
-            this.moveToXZAnimated = function (x, z) {
-                var signX = x < self.currentX ? -1 : 1;
-                var signZ = z < self.currentZ ? -1 : 1;
 
-                if ((signX == 1 && self.currentX + (signX * self.increment) <= x) ||
-                (signX == -1 && self.currentX + (signX * self.increment) >= x)) {
+            this.updateXZLocation = function (x, z) {
+                armHub.server.updateBaseLocation(x, z);
+            }
+
+            this.moveToXZAnimated = function (x, z) {
+                var signX = x < self.currentX() ? -1 : 1;
+                var signZ = z < self.currentZ() ? -1 : 1;
+
+                if ((signX == 1 && self.currentX() + (signX * self.increment) <= x) ||
+                (signX == -1 && self.currentX() + (signX * self.increment) >= x)) {
 
                     signX == -1 ? self.moveLeft() : self.moveRight();
                 }
 
-                if ((signZ == 1 && self.currentZ + (signZ * self.increment) <= z) ||
-                    (signZ == -1 && self.currentZ + (signZ * self.increment) >= z)) {
+                if ((signZ == 1 && self.currentZ() + (signZ * self.increment) <= z) ||
+                    (signZ == -1 && self.currentZ() + (signZ * self.increment) >= z)) {
 
                     signZ == -1 ? self.moveUp() : self.moveDown();
                 }
 
-                if (x != self.currentX || z != self.currentZ) {
+                if (x != self.currentX() || z != self.currentZ()) {
                     window.setTimeout(function () { self.moveToXZAnimated(x, z) }, 100);
                 }
             };
@@ -480,12 +1291,16 @@
                 if (joint.MaximumRotationDegree != 360) {
                     //don't let it go beyond maximum
                     if (joint.CurrentRotationDegree + degree > joint.MaximumRotationDegree) {
-                        return false;
+                        var rotationDegree = joint.MaximumRotationDegree - joint.CurrentRotationDegree;
+                        joint.CurrentRotationDegree = joint.MaximumRotationDegree;
+                        return joint.CurrentRotationDegree;
                     }
 
                     //don't let it go beyond minimum
                     if (joint.CurrentRotationDegree + degree < joint.MinimumRotationDegree) {
-                        return false;
+                        var rotationDegree = joint.CurrentRotationDegree - joint.MaximumRotationDegree;
+                        joint.CurrentRotationDegree = joint.MinimumRotationDegree;
+                        return joint.CurrentRotationDegree;
                     }
                 }
 
@@ -500,7 +1315,7 @@
                     }
                 }
 
-                return true;
+                return joint.CurrentRotationDegree;
             };
 
             this.resetArmToHome = function () {
@@ -559,7 +1374,7 @@
                     case ArmMode.BendShoulder:
                     case ArmMode.BendWrist:
                     case ArmMode.RotateWrist:
-                        //move arm back to 0                        
+                        //move arm back to 0
                         self.resetArmToHome();
                         break
                 }
@@ -568,6 +1383,11 @@
 
         var armHub = null;
         var armController = null;
+
+        function getProperties(object)
+        {
+            
+        }
 
         $(function () {
             armHub = $.connection.armHub;
@@ -601,8 +1421,7 @@
                         //alert(evt.keyCode);
                     }
 
-                    switch(evt.keyCode)
-                    {
+                    switch (evt.keyCode) {
                         case 123:
                         case 116:
                             break;
@@ -620,24 +1439,62 @@
     </script>
 }
 @section styles {
-.selectedButton {
-        background-color: green;
-        color: white;
+    .selectedButton {
+    background-color: green;
+    color: white;
     }
     .button {
 
     }
+    .joystick {
+    border: 1px solid black;
+    }
 }
 <button onclick="armController.init();">Init</button>
 
-<div>
-    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.RotateBase }, click: function () { CurrentMode(ArmMode.RotateBase); }">Rotate Base</button>
+<div class="joystick">
+    <div>Right Joystick</div>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.MoveBase }, click: function () { CurrentMode(ArmMode.MoveBase); }">Move Base</button>
+    <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.RotateBase }, click: function () { CurrentMode(ArmMode.RotateBase); }">Rotate Base</button>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendShoulder }, click: function () { CurrentMode(ArmMode.BendShoulder); }">Bend Shoulder</button>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendElbow }, click: function () { CurrentMode(ArmMode.BendElbow); }">Bend Elbow</button>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.RotateWrist }, click: function () { CurrentMode(ArmMode.RotateWrist); }">Rotate Wrist</button>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.BendWrist }, click: function () { CurrentMode(ArmMode.BendWrist); }">Bend Wrist</button>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.MoveObject }, click: function () { CurrentMode(ArmMode.MoveObject); }">Move Object</button>
+</div>
+<div class="joystick">
+    <div>Left Joystick</div>
     <button class="button" data-bind="css: { selectedButton: CurrentMode() == ArmMode.GrabObject }, click: function () { CurrentMode(ArmMode.GrabObject); }">Grab Object</button>
-
+</div>
+<div>
+    <div style="border: 1px solid black">
+        <div>Current Gripper Location</div>
+        <div>
+            <div>X: <span data-bind="text: currentGripperX"></span></div>
+            <div>Y: <span data-bind="text: currentGripperY"></span></div>
+            <div>Z: <span data-bind="text: currentGripperZ"></span></div>
+        </div>
+    </div>
+    <div style="border: 1px solid black">
+        <div>Current Base Location</div>
+        <div>
+            <div>X: <span data-bind="text: currentX"></span></div>
+            <div>Y: <span data-bind="text: currentY"></span></div>
+            <div>Z: <span data-bind="text: currentZ"></span></div>
+        </div>
+    </div>
+    <div style="border: 1px solid black">
+        <div>Movements</div>
+        <div data-bind="foreach: movements">
+            <div>Joint:&nbsp;<span data-bind="text: JointIndex"></span>&nbsp;Distance:&nbsp;<span data-bind="text: distance"></span></div>
+        </div>
+    </div>
+    <div style="border: 1px solid black">
+        <div>Debug Info</div>
+        <div data-bind="foreach: debugInfo">
+            <div>
+                <span data-bind="text: key"></span>&nbsp;<span data-bind="text: value"></span>
+            </div>
+        </div>
+    </div>
 </div>

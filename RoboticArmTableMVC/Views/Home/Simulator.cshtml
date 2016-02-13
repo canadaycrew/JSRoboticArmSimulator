@@ -930,7 +930,7 @@
 
                 var linkage = self.linkages[jointIndex];
 
-                linkage.rotation.z = parseFloat(options.distance) * (Math.PI / 180);
+                linkage.rotation.z = utilities.getRadians(parseFloat(options.distance)); // parseFloat(options.distance) * (Math.PI / 180);
             };
 
             this.moveArm = function (options) {
@@ -939,14 +939,16 @@
                 for (var x = 0; x < movements.length; x++) {
                     var movement = movements[x];
 
-                    if (self.joints[movement.JointIndex].Orientation == JointOrientation.Bend) {
-                        self.bendJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
-                    }
-                    else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Rotate) {
-                        self.rotateJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
-                    }
-                    else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Gripper) {
-                        gripper.moveGripper(movement.distance);
+                    if (movement.distance != null) {
+                        if (self.joints[movement.JointIndex].Orientation == JointOrientation.Bend) {
+                            self.bendJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
+                        }
+                        else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Rotate) {
+                            self.rotateJoint({ JointIndex: movement.JointIndex, distance: movement.distance });
+                        }
+                        else if (self.joints[movement.JointIndex].Orientation == JointOrientation.Gripper) {
+                            gripper.moveGripper(movement.distance);
+                        }
                     }
                 }
             };
@@ -1178,9 +1180,12 @@
 
                 xyAssembly.moveAssembly();
 
-                camera.position.x = base.tableGeometry.width / 2;
-                camera.position.y = base.pipeGeo.height / 2;
-                camera.position.z = 350;
+                //move camera to middle of table width/height and back far enough to see the whole table
+                camera.position.x = base.tableGeometry.width/2; //base.tableGeometry.width / 2;
+                camera.position.y = (base.pipeGeo.height + base.tableGeometry.height) /2; //base.pipeGeo.height / 2;
+                camera.position.z = 100; //125; //125; //350;
+                
+                controls.target = new THREE.Vector3(base.tableGeometry.width/2, ((base.pipeGeo.height + base.tableGeometry.height)/2), -(base.tableGeometry.depth));
 
                 var frontLight = new THREE.PointLight(0xffffff);
                 frontLight.position.set(base.tableGeometry.width / 2, base.tableGeometry.height + base.pipeGeo.height, (base.tableGeometry.depth / 2));
@@ -1264,9 +1269,48 @@
                 gripperPositionSphere.position.x = utilities.calculateSize(x) + self.xyAssembly.armMountAssemblyDef.armMountWidth / 2;
                 gripperPositionSphere.position.y = utilities.calculateSize(y);
                 gripperPositionSphere.position.z = utilities.calculateSize(z) + self.xyAssembly.armMountAssemblyDef.armMountDepth / 2;
-                //gripperPositionSphere.position.x = x;
-                //gripperPositionSphere.position.y = y;
-                //gripperPositionSphere.position.z = z;
+            };
+
+            this.calculationTriangles = null;
+
+            armHub.client.drawTriangleDetails = function (triangles) {
+                if (self.calculationTriangles) {
+                    //remove existing triangles from scene
+                    for (var index = 0; index < self.calculationTriangles.length; index++) {
+                        scene.remove(self.calculationTriangles[index]);
+                    }
+                }
+
+                self.calculationTriangles = [];
+
+                for (var index = 0; index < triangles.length; index++) {
+                    var triangle = triangles[index];
+
+                    var points = [];
+
+                    for (var pointIndex = 0; pointIndex < triangle.Points.length; pointIndex++) {
+                        var point = triangle.Points[pointIndex];
+
+                        points.push(new THREE.Vector3(utilities.calculateSize(point.x) + self.xyAssembly.armMountAssemblyDef.armMountWidth / 2,
+                            utilities.calculateSize(point.y),
+                            utilities.calculateSize(point.z) + self.xyAssembly.armMountAssemblyDef.armMountDepth / 2));
+                    }
+
+                    var triangleGeo = new THREE.Geometry();
+                    triangleGeo.vertices = points;
+                    triangleGeo.faces.push( new THREE.Face3( 0, 1, 2 ) );
+                    var triangleMesh = new THREE.Mesh(triangleGeo, new THREE.MeshBasicMaterial({ color: triangle.Color, linewidth: 2, wireframe: true }));
+
+                    self.calculationTriangles.push(triangleMesh);
+
+                    scene.add(triangleMesh);
+                }
+            };
+
+            armHub.client.updateBaseLocation = function (x, z) {
+                self.xyAssembly.armSupportX = utilities.calculateSize(x);
+                self.xyAssembly.armSupportZ = utilities.calculateSize(z);
+                self.xyAssembly.moveAssembly();
             };
 
             $.connection.hub.start();

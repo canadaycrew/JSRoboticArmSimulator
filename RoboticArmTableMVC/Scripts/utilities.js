@@ -16,7 +16,7 @@ var ArmMode = {
 };
 
 var utilities = new function () {
-    var self = this;
+    var self = this;  
 
     this.calculateSize = function (sizeInches) {
         var factor = 96 / 25.4;
@@ -28,4 +28,8 @@ var utilities = new function () {
         return degrees * (Math.PI / 180);
     };
 
+    this.getDegrees = function (radians) {
+        return radians * (180 / Math.PI);
+    };
+    
 };

@@ -20,6 +20,12 @@ namespace RoboticArmTableMVC
             public Vector[] Points { get; set; }
         }
 
+        public class Triangle
+        {
+            public string Color { get; set; }
+            public Vector[] Points { get; set; }
+        }
+
         public class InitParameters
         {
             public float currentX { get; set; }
@@ -63,6 +69,16 @@ namespace RoboticArmTableMVC
         public void MoveCurrentGripperLocation(float x, float y, float z)
         {
             Clients.All.moveCurrentGripperLocation(x, y, z);
+        }
+
+        public void DrawTriangleDetails(List<Triangle> triangles)
+        {
+            Clients.All.drawTriangleDetails(triangles);
+        }
+
+        public void UpdateBaseLocation(float x, float z)
+        {
+            Clients.All.updateBaseLocation(x, z);
         }
     }
 }

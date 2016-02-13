@@ -43,5 +43,10 @@ namespace RoboticArmTableMVC.Controllers
         {
             return View();
         }
+
+        public ActionResult MatricesJoystick()
+        {
+            return View();
+        }
     }
 }

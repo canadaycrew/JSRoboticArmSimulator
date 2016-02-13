@@ -20,12 +20,9 @@ C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\Robo
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Microsoft.Web.WebPages.OAuth.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Newtonsoft.Json.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Owin.dll
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Net.Http.Formatting.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Spatial.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Helpers.dll
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Http.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Http.OData.dll
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Http.WebHost.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Mvc.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Optimization.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Razor.dll
@@ -42,10 +39,7 @@ C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\Robo
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Microsoft.Owin.Security.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Newtonsoft.Json.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\EntityFramework.xml
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Net.Http.Formatting.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Helpers.xml
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Http.xml
-C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Http.WebHost.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Mvc.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.Razor.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\System.Web.WebPages.xml
@@ -98,3 +92,4 @@ C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\Robo
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\Microsoft.AspNet.SignalR.Owin.xml
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\RoboticArmTableCore.dll
 C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\RoboticArmTableCore.pdb
+C:\Users\canadaysd\Documents\Visual Studio 2012\Projects\RoboticArmTableWPF\RoboticArmTableMVC\bin\RoboticArmTableMVC.dll.config
